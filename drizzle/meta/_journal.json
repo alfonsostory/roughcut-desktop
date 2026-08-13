@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786631073495,
+      "tag": "0000_curious_jasper_sitwell",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,148 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  DEFAULT_CONFIG,
+  buildEdl,
+  generateCandidateCuts,
+  validateCut,
+  validateEditedResult,
+} from "../app/lib/editing/engine.mjs";
+
+const words = [
+  { word: "one", start: 0.2, end: 0.5 },
+  { word: "two", start: 1.5, end: 1.8 },
+  { word: "start", start: 2.1, end: 2.4 },
+  { word: "again", start: 3.4, end: 3.8 },
+];
+
+test("long pauses are shortened to the configured target with speech-safe sides", () => {
+  const [cut] = generateCandidateCuts(words.slice(0, 2));
+  assert.equal(cut.type, "silence");
+  assert.equal(cut.start, 0.59);
+  assert.equal(cut.end, 1.41);
+  assert.equal(cut.validation.resultingGap, 0.18);
+  assert.equal(cut.validation.valid, true);
+});
+
+test("pauses at or below the calibrated 200 ms maximum are left alone", () => {
+  const closeWords = [{ word: "a", start: 0, end: 0.4 }, { word: "b", start: 0.6, end: 1.0 }];
+  assert.equal(generateCandidateCuts(closeWords).length, 0);
+});
+
+test("audio-energy analysis adds head, tail, and timestamp-independent silence cuts", () => {
+  const energyWords = [
+    { word: "hello", start: 1.2, end: 1.5 },
+    { word: "world", start: 2.0, end: 2.3 },
+  ];
+  const cuts = generateCandidateCuts(energyWords, [], DEFAULT_CONFIG, {
+    duration: 3.2,
+    silenceThresholdDb: -40,
+    audioSilences: [
+      { start: 0, end: 1.05, duration: 1.05, minimum_db: -60 },
+      { start: 1.55, end: 1.91, duration: 0.36, minimum_db: -52 },
+      { start: 2.45, end: 3.18, duration: 0.73, minimum_db: -58 },
+    ],
+  });
+  assert.ok(cuts.some((cut) => cut.start === 0 && cut.end === 1.11));
+  assert.ok(cuts.some((cut) => cut.audioVerified && cut.start <= 1.64 && cut.end >= 1.91));
+  assert.ok(cuts.some((cut) => cut.start === 2.39 && cut.end === 3.2));
+  assert.ok(cuts.every((cut) => cut.validation.valid));
+});
+
+test("semantic retake selection is mapped to exact word boundaries", () => {
+  const cuts = generateCandidateCuts(words, [{
+    kind: "retake",
+    earlierWordRange: [2, 2],
+    keptWordRange: [3, 3],
+    confidence: 0.95,
+    reason: "Incomplete take followed by a complete take.",
+  }]);
+  const retake = cuts.find((cut) => cut.type === "retake");
+  assert.equal(retake.start, 1.89);
+  assert.equal(retake.end, 3.31);
+  assert.equal(retake.validation.valid, true);
+  assert.equal(retake.status, "approved");
+});
+
+test("unique information makes a semantic cut high risk and excludes it from the EDL", () => {
+  const cuts = generateCandidateCuts(words, [{
+    kind: "retake",
+    earlierWordRange: [2, 2],
+    keptWordRange: [3, 3],
+    confidence: 0.91,
+    reason: "Similar takes.",
+    uniqueTerms: ["start"],
+  }]);
+  const risky = cuts.find((cut) => cut.type === "retake");
+  assert.equal(risky.risk, "high");
+  assert.equal(risky.status, "needs_review");
+  assert.ok(buildEdl(4, cuts).every((range) => !range.candidateCutIds?.includes(risky.id)));
+});
+
+test("cut validation rejects a boundary inside a spoken word", () => {
+  const result = validateCut({ start: 0.3, end: 1.3 }, words, DEFAULT_CONFIG);
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) => issue.includes("intersects")));
+});
+
+test("overlapping approved silence and retake cuts are merged instead of dropping the retake", () => {
+  const cuts = generateCandidateCuts(words, [{
+    kind: "retake",
+    earlierWordRange: [2, 2],
+    keptWordRange: [3, 3],
+    confidence: 0.95,
+    reason: "Restart.",
+  }]);
+  const removal = buildEdl(4, cuts).find((range) => range.action === "remove" && range.start === 1.89);
+  assert.ok(removal);
+  assert.ok(removal.candidateCutIds.length >= 2);
+  assert.equal(removal.end, 3.31);
+});
+
+test("result validation reconstructs transcript and reports no missing meaning for a repeated take", () => {
+  const repeatedWords = [
+    { word: "we", start: 0.1, end: 0.3 },
+    { word: "begin", start: 0.35, end: 0.7 },
+    { word: "we", start: 1.8, end: 2.0 },
+    { word: "begin", start: 2.05, end: 2.4 },
+    { word: "today", start: 2.45, end: 2.8 },
+  ];
+  const cuts = generateCandidateCuts(repeatedWords, [{
+    kind: "repetition",
+    earlierWordRange: [0, 1],
+    keptWordRange: [2, 4],
+    confidence: 0.96,
+    reason: "Final complete take wins.",
+  }]);
+  const result = validateEditedResult(repeatedWords, cuts);
+  assert.equal(result.valid, true);
+  assert.equal(result.reconstructedTranscript, "we begin today");
+  assert.deepEqual(result.missingUniqueWords, []);
+});
+
+test("result validation respects semantic correction classification and overlapping silence ranges", () => {
+  const correctionWords = [
+    { word: "intro", start: 0, end: 0.3 },
+    { word: "with", start: 0.4, end: 0.6 },
+    { word: "Bart.", start: 0.6, end: 0.9 },
+    { word: "with", start: 1.8, end: 2.0 },
+    { word: "Bryan", start: 2.0, end: 2.3 },
+    { word: "Cochran.", start: 2.3, end: 2.7 },
+  ];
+  const cuts = generateCandidateCuts(correctionWords, [{
+    kind: "retake",
+    earlierWordRange: [1, 2],
+    keptWordRange: [3, 5],
+    confidence: 0.96,
+    reason: "Corrected name in the complete take.",
+    uniqueTerms: [],
+  }], DEFAULT_CONFIG, {
+    duration: 3,
+    audioSilences: [{ start: 0.9, end: 1.8, duration: 0.9, minimum_db: -55 }],
+    silenceThresholdDb: -40,
+  });
+  const result = validateEditedResult(correctionWords, cuts);
+  assert.deepEqual(result.missingUniqueWords, []);
+  assert.deepEqual(result.remainingLongPauses, []);
+  assert.equal(result.valid, true);
+});
