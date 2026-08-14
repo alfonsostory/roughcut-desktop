@@ -95,21 +95,37 @@ function createMergedSilenceCut(words, proposal, index, config) {
         resultingGap: round(config.targetPause),
       }
     : transcriptValidation;
-  const originalPause = round(proposal.end - proposal.start + config.targetPause);
   const position = !before ? "leading" : !after ? "trailing" : "internal";
+  const originalPause = round(
+    position === "leading"
+      ? after?.start ?? proposal.end
+      : position === "trailing"
+        ? proposal.end - (before?.end ?? proposal.start)
+        : after.start - before.end,
+  );
+  const remainingPause = round(
+    position === "leading"
+      ? (after?.start ?? proposal.end) - proposal.end
+      : position === "trailing"
+        ? proposal.start - (before?.end ?? proposal.start)
+        : validation.resultingGap,
+  );
   const originalText = position === "leading"
     ? `[${originalPause.toFixed(2)}s leading silence]  ${after?.word ?? ""}`
     : position === "trailing"
       ? `${before?.word ?? ""}  [${originalPause.toFixed(2)}s trailing silence]`
       : `${before.word}  [${originalPause.toFixed(2)}s pause]  ${after.word}`;
   const resultingText = position === "leading"
-    ? `[trimmed head]  ${after?.word ?? ""}`
+    ? `[${remainingPause.toFixed(2)}s safe pre-roll]  ${after?.word ?? ""}`
     : position === "trailing"
       ? `${before?.word ?? ""}  [trimmed tail]`
       : `${before.word}  [${config.targetPause.toFixed(2)}s pause]  ${after.word}`;
   const sourceLabel = audioVerified
     ? `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
     : "Word timestamps confirm the removable region.";
+  const actionLabel = position === "leading"
+    ? `Trim opening silence to ${remainingPause.toFixed(2)}s of word-safe pre-roll.`
+    : `Shorten ${position} silence toward ${config.targetPause.toFixed(2)}s.`;
 
   return {
     id: `silence-merged-${index}-${round(proposal.start)}`,
@@ -118,7 +134,7 @@ function createMergedSilenceCut(words, proposal, index, config) {
     type: "silence",
     confidence: audioVerified ? 0.98 : 0.9,
     risk: validation.valid ? "low" : "high",
-    reason: `${sourceLabel} Shorten ${position} silence toward ${config.targetPause.toFixed(2)}s.`,
+    reason: `${sourceLabel} ${actionLabel}`,
     original_text: originalText,
     resulting_text: resultingText,
     status: validation.valid ? "approved" : "needs_review",
@@ -171,7 +187,9 @@ function generateSilenceCandidates(words, config, analysis) {
     }
   }
 
-  if (words[0].start > config.longPauseThreshold + 0.001) {
+  // Opening dead air is always trimmed independently of the internal-pause
+  // threshold. The first word still keeps the configured safety pre-roll.
+  if (words[0].start > side + 0.001) {
     proposals.push({
       start: 0,
       end: words[0].start - side,

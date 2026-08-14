@@ -29,6 +29,32 @@ test("pauses at or below the calibrated 200 ms maximum are left alone", () => {
   assert.equal(generateCandidateCuts(closeWords).length, 0);
 });
 
+test("opening silence is trimmed even when it is below the internal-pause threshold", () => {
+  const openingWords = [{ word: "hello", start: 0.16, end: 0.42 }];
+  const [cut] = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {
+    duration: 0.5,
+    audioSilences: [],
+  });
+
+  assert.equal(cut.start, 0);
+  assert.equal(cut.end, 0.07);
+  assert.equal(cut.type, "silence");
+  assert.equal(cut.status, "approved");
+  assert.equal(cut.validation.valid, true);
+  assert.match(cut.reason, /Trim opening silence to 0\.09s/);
+  assert.match(cut.resulting_text, /0\.09s safe pre-roll/);
+});
+
+test("opening trim never removes the configured word-safety pre-roll", () => {
+  const openingWords = [{ word: "hello", start: 0.08, end: 0.32 }];
+  const cuts = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {
+    duration: 0.4,
+    audioSilences: [],
+  });
+
+  assert.equal(cuts.some((cut) => cut.start === 0), false);
+});
+
 test("audio-energy analysis adds head, tail, and timestamp-independent silence cuts", () => {
   const energyWords = [
     { word: "hello", start: 1.2, end: 1.5 },
