@@ -174,7 +174,7 @@ test("cut validation rejects a boundary inside a spoken word", () => {
   assert.ok(result.issues.some((issue) => issue.includes("intersects")));
 });
 
-test("unsafe generated boundaries are kept automatically instead of awaiting approval", () => {
+test("unsafe generated boundaries are approved by default but blocked from the EDL", () => {
   const overlappingWords = [
     { word: "first", start: 0, end: 0.5 },
     { word: "second", start: 0.45, end: 0.8 },
@@ -189,7 +189,7 @@ test("unsafe generated boundaries are kept automatically instead of awaiting app
   const unsafe = cuts.find((cut) => cut.type === "retake");
 
   assert.equal(unsafe.validation.valid, false);
-  assert.equal(unsafe.status, "rejected");
+  assert.equal(unsafe.status, "approved");
   assert.ok(buildEdl(0.8, cuts).every((range) => !range.candidateCutIds?.includes(unsafe.id)));
 });
 

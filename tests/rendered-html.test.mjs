@@ -20,8 +20,8 @@ test("server-renders the rough-cut review workspace", async () => {
   assert.match(html, /Export EDL/);
   assert.match(html, /Render cut preview/);
   assert.match(html, /Export \d+ segments/);
-  assert.match(html, /Every valid cut starts active/);
-  assert.match(html, /High-risk cut active by default/);
+  assert.match(html, /Every proposed cut starts approved, including high-risk cuts/);
+  assert.match(html, /High-risk cut approved by default/);
   assert.doesNotMatch(html, /Manual decision required|need review/i);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });

@@ -81,7 +81,7 @@ export default function RoughcutWorkspace() {
   const [transcriptionState, setTranscriptionState] = useState<TranscriptionState>("idle");
   const [renderState, setRenderState] = useState<RenderState>("idle");
   const [segmentExportState, setSegmentExportState] = useState<SegmentExportState>("idle");
-  const [renderNote, setRenderNote] = useState("All valid cuts are active · later decisions refresh the preview automatically");
+  const [renderNote, setRenderNote] = useState("All proposed cuts are approved · timestamp-unsafe boundaries remain blocked from rendering");
   const [hasSourceFile, setHasSourceFile] = useState(false);
 
   useEffect(() => () => {
@@ -110,6 +110,7 @@ export default function RoughcutWorkspace() {
   const edlSignature = useMemo(() => JSON.stringify(keepRanges), [keepRanges]);
   const validation = useMemo(() => validateEditedResult(words, candidates, config), [words, candidates, config]);
   const approved = candidates.filter((cut) => cut.status === "approved").length;
+  const blocked = candidates.filter((cut) => cut.status === "approved" && !cut.validation.valid).length;
   const removedDuration = edl
     .filter((range) => range.action === "remove")
     .reduce((sum, range) => sum + range.end - range.start, 0);
@@ -174,7 +175,7 @@ export default function RoughcutWorkspace() {
     queueAutomaticPreviewRefresh();
     setCandidates((current) => current.map((item) =>
       item.id === cut.id
-        ? { ...item, start, end, validation: checked, status: checked.valid ? "approved" : "rejected", humanOverride: checked.valid }
+        ? { ...item, start, end, validation: checked, status: "approved", humanOverride: true }
         : item,
     ));
     setAdjustingId(undefined);
@@ -273,7 +274,7 @@ export default function RoughcutWorkspace() {
     setMediaId(undefined);
     setRenderState("idle");
     setSegmentExportState("idle");
-    setRenderNote("All valid cuts are active · later decisions refresh the preview automatically");
+    setRenderNote("All proposed cuts are approved · timestamp-unsafe boundaries remain blocked from rendering");
     setFileName(file.name);
     setWords([]);
     setHints([]);
@@ -456,7 +457,7 @@ export default function RoughcutWorkspace() {
         <div className="project-stats" aria-label="Project summary">
           <div><strong>{formatTime(duration)}</strong><span>source</span></div>
           <div><strong>−{removedDuration.toFixed(1)}s</strong><span>removed</span></div>
-          <div><strong>{approved}/{candidates.length}</strong><span>cuts active</span></div>
+          <div><strong>{approved}/{candidates.length}</strong><span>cuts approved</span></div>
           <div className={validation.valid ? "healthy" : "warning"}><strong>{validation.valid ? "Meaning intact" : "Check meaning"}</strong><span>validation</span></div>
         </div>
       </section>
@@ -500,7 +501,7 @@ export default function RoughcutWorkspace() {
                   <span>The demo analysis is ready. Your footage stays on this device.</span>
                 </button>
               )}
-              <div className="safe-badge"><span>✓</span> {viewMode === "preview" ? "Approved cuts rendered" : "Word + audio-safe boundaries"}</div>
+              <div className="safe-badge"><span>✓</span> {viewMode === "preview" ? "Timestamp-safe approved cuts rendered" : "Word + audio-safe boundaries"}</div>
             </div>
             <div className="transport">
               <button aria-label="Jump backward">−5</button><button className="transport-play" aria-label="Play">▶</button><button aria-label="Jump forward">+5</button>
@@ -520,7 +521,7 @@ export default function RoughcutWorkspace() {
               {candidates.map((cut) => (
                 <button
                   key={cut.id}
-                  className={`cut-marker ${cut.status === "rejected" ? "review" : ""} ${selectedId === cut.id ? "selected" : ""}`}
+                  className={`cut-marker ${cut.status === "rejected" ? "review" : ""} ${!cut.validation.valid ? "blocked" : ""} ${selectedId === cut.id ? "selected" : ""}`}
                   style={{ left: `${(cut.start / duration) * 100}%`, width: `${Math.max(1.2, ((cut.end - cut.start) / duration) * 100)}%` }}
                   onClick={() => previewCut(cut)}
                   aria-label={`Preview ${cutLabel(cut)} at ${formatTime(cut.start)}`}
@@ -532,7 +533,7 @@ export default function RoughcutWorkspace() {
               <span><i className="status-check">✓</i> Boundaries use timed words or verified silence</span>
               <span><i className="status-check">✓</i> Breaths inside word gaps count as pauses</span>
               <span><i className="status-check">✓</i> Minimum speech padding {Math.round(config.minimumSpeechSide * 1000)} ms</span>
-              <span><i className="status-check">✓</i> All valid cuts active by default</span>
+              <span><i className="status-check">✓</i> All proposed cuts approved by default</span>
             </div>
           </div>
 
@@ -573,13 +574,13 @@ export default function RoughcutWorkspace() {
 
         <aside className="review-panel">
           <div className="review-header">
-            <div><span className="eyebrow">Decision queue</span><h2>Review proposed cuts</h2><p>Every valid cut starts active. Choose Keep to restore a section.</p></div>
-            <span className="queue-count">{approved} active</span>
+            <div><span className="eyebrow">Decision queue</span><h2>Review proposed cuts</h2><p>Every proposed cut starts approved, including high-risk cuts. Choose Keep to restore a section.</p></div>
+            <span className="queue-count">{approved} approved{blocked ? ` · ${blocked} safety-blocked` : ""}</span>
           </div>
           <div className="filter-row">
             {(["all", "approved", "rejected"] as Filter[]).map((item) => (
               <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
-                {item === "all" ? `All ${candidates.length}` : item === "approved" ? `Active ${approved}` : "Kept"}
+                {item === "all" ? `All ${candidates.length}` : item === "approved" ? `Approved ${approved}` : "Kept"}
               </button>
             ))}
           </div>
@@ -643,8 +644,8 @@ function CutCard({ cut, number, selected, adjusting, onPreview, onStatus, onAdju
         <span className="change-arrow">→</span>
         <div><span>After</span><p>{cut.resulting_text}</p></div>
       </div>
-      {cut.risk === "high" && cut.validation.valid && <div className="danger-note"><span>!</span><p><strong>High-risk cut active by default.</strong> Choose Keep if this section should remain.</p></div>}
-      {!cut.validation.valid && <div className="danger-note"><span>×</span><p>{cut.validation.issues.join(" ")}</p></div>}
+      {cut.risk === "high" && cut.validation.valid && <div className="danger-note"><span>!</span><p><strong>High-risk cut approved by default.</strong> Choose Keep if this section should remain.</p></div>}
+      {!cut.validation.valid && <div className="danger-note"><span>×</span><p><strong>Approved by default, but blocked from rendering for timestamp safety.</strong> {cut.validation.issues.join(" ")}</p></div>}
       {adjusting && (
         <div className="adjust-row">
           <label>In <input type="number" step="0.01" value={start} onChange={(event) => setStart(Number(event.target.value))} /></label>

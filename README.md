@@ -20,7 +20,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 
 The semantic layer decides which word spans are likely repetitions or retakes. It supplies word-index hints only. The editing engine derives every second-level boundary from word timestamps or verified silent audio, protects 90 ms on both sides of speech, and rejects unverified boundaries inside speech.
 
-Every cut with valid deterministic boundaries is active by default, including high-risk semantic cuts. High-risk evidence remains visible in the queue, and the reviewer can choose **Keep** to restore that section. Candidates with invalid boundaries are kept automatically and never rendered.
+Every proposed cut is approved by default, including high-risk semantic cuts and candidates carrying safety warnings. High-risk evidence remains visible in the queue, and the reviewer can choose **Keep** to restore that section. Candidates whose exact boundaries fail timestamp safety remain approved in the queue but are blocked from rendering so they cannot clip speech.
 
 Breath evidence is treated as a pause cue, not as an independent cut boundary. The detector identifies the sound, then the editing engine maps the removal to the surrounding word timestamps and applies the same padding and transition validation as every other pause.
 

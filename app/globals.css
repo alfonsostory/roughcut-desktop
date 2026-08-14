@@ -132,6 +132,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 .waveform > i { display: block; flex: 1; border-radius: 2px; background: #b6c8c0; opacity: .82; min-width: 1px; }
 .cut-marker { position: absolute; z-index: 3; top: 2px; bottom: 2px; border: 0; background: rgba(239, 118, 95, .5); border-inline: 2px solid var(--coral); cursor: pointer; min-width: 6px; }
 .cut-marker.review { background: rgba(241, 174, 69, .45); border-color: var(--amber); }
+.cut-marker.blocked { background: repeating-linear-gradient(135deg, rgba(239, 118, 95, .5) 0 4px, rgba(255, 255, 255, .7) 4px 8px); border-color: #a54a3a; }
 .cut-marker.selected { box-shadow: 0 0 0 2px white, 0 0 0 4px var(--forest); }
 .playhead { position: absolute; z-index: 2; left: 1.5%; top: 0; bottom: 0; border-left: 1px solid #d9ddd9; }
 .playhead::before { content: ""; position: absolute; left: -3px; width: 6px; height: 6px; background: var(--ink); transform: rotate(45deg); }

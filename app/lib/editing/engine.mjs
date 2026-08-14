@@ -78,7 +78,7 @@ function createSilenceCut(words, previousIndex, config) {
     reason: `Shorten a ${pause.toFixed(2)}s pause to ${validation.resultingGap.toFixed(2)}s.`,
     original_text: `${previous.word}  [${pause.toFixed(2)}s pause]  ${next.word}`,
     resulting_text: `${previous.word}  [${validation.resultingGap.toFixed(2)}s pause]  ${next.word}`,
-    status: validation.valid ? "approved" : "rejected",
+    status: "approved",
     validation,
     sourceWordRange: null,
   };
@@ -150,7 +150,7 @@ function createMergedSilenceCut(words, proposal, index, config) {
     reason: `${sourceLabel} ${actionLabel}`,
     original_text: originalText,
     resulting_text: resultingText,
-    status: validation.valid ? "approved" : "rejected",
+    status: "approved",
     validation,
     sourceWordRange: null,
     audioVerified,
@@ -291,7 +291,7 @@ function createSemanticCut(words, hint, config) {
       : hint.reason,
     original_text: contextText(words, earlierStart, laterStart - 1),
     resulting_text: contextText(words, laterStart, hint.keptWordRange[1]),
-    status: validation.valid ? "approved" : "rejected",
+    status: "approved",
     validation,
     sourceWordRange: [earlierStart, laterStart - 1],
     semanticHint: {
