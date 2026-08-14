@@ -14,13 +14,39 @@ const nonSpeechOpeningToken = (value) => {
     || /[♪♫]/u.test(token);
 };
 
+const startsConfidentSpeechRun = (words, index, minimumConfidence) => {
+  const opening = words[index];
+  if (!/[\p{L}]/u.test(opening.word)) return false;
+
+  let previousEnd = opening.end;
+  let assessed = 0;
+  let confident = 0;
+  let confidenceTotal = 0;
+  for (const word of words.slice(index + 1, index + 4)) {
+    if (word.start - previousEnd > 0.35 || nonSpeechOpeningToken(word.word)) break;
+    const confidence = isFiniteNumber(word.confidence) ? word.confidence : minimumConfidence;
+    assessed += 1;
+    confident += confidence >= minimumConfidence ? 1 : 0;
+    confidenceTotal += confidence;
+    previousEnd = word.end;
+  }
+
+  return assessed >= 2
+    && confident >= 2
+    && confidenceTotal / assessed >= minimumConfidence;
+};
+
 export function findFirstRecognizableWord(words, minimumConfidence = 0.55) {
   const lexicalIndexes = [];
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index];
     if (!word || typeof word.word !== "string" || nonSpeechOpeningToken(word.word)) continue;
     lexicalIndexes.push(index);
-    if (!isFiniteNumber(word.confidence) || word.confidence >= minimumConfidence) {
+    if (
+      !isFiniteNumber(word.confidence)
+      || word.confidence >= minimumConfidence
+      || startsConfidentSpeechRun(words, index, minimumConfidence)
+    ) {
       return {
         index,
         word,

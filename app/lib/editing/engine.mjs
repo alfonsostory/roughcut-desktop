@@ -86,7 +86,11 @@ function createSilenceCut(words, previousIndex, config) {
 
 function createMergedSilenceCut(words, proposal, index, config) {
   const { before, after } = surroundingWords(words, proposal.start, proposal.end);
-  const transcriptValidation = validateCut(proposal, words, config);
+  const openingEvidence = proposal.evidence.find((item) => item.source === "opening_word");
+  const validationWords = openingEvidence
+    ? words.slice(openingEvidence.openingWordIndex)
+    : words;
+  const transcriptValidation = validateCut(proposal, validationWords, config);
   const silenceVerified = proposal.sources.has("audio_energy");
   const breathDetected = proposal.sources.has("breath");
   const audioVerified = silenceVerified || breathDetected;
@@ -98,7 +102,6 @@ function createMergedSilenceCut(words, proposal, index, config) {
       }
     : transcriptValidation;
   const position = !before ? "leading" : !after ? "trailing" : "internal";
-  const openingEvidence = proposal.evidence.find((item) => item.source === "opening_word");
   const originalPause = round(
     position === "leading"
       ? after?.start ?? proposal.end
@@ -152,7 +155,9 @@ function createMergedSilenceCut(words, proposal, index, config) {
     resulting_text: resultingText,
     status: "approved",
     validation,
-    sourceWordRange: null,
+    sourceWordRange: openingEvidence?.openingWordIndex > 0
+      ? [0, openingEvidence.openingWordIndex - 1]
+      : null,
     audioVerified,
     breathDetected,
     openingTrim: position === "leading",
@@ -353,15 +358,21 @@ export function buildEdl(duration, candidates) {
   return ranges;
 }
 
-function wordIsRemoved(word, approvedCuts) {
-  return approvedCuts.some((cut) => word.start >= cut.start && word.end <= cut.end);
+function wordIsRemoved(word, wordIndex, approvedCuts) {
+  return approvedCuts.some((cut) => (
+    word.start >= cut.start && word.end <= cut.end
+  ) || (
+    cut.sourceWordRange
+    && wordIndex >= cut.sourceWordRange[0]
+    && wordIndex <= cut.sourceWordRange[1]
+  ));
 }
 
 export function validateEditedResult(words, candidates, config = DEFAULT_CONFIG) {
   const approved = candidates.filter(
     (cut) => cut.status === "approved" && cut.validation.valid,
   );
-  const keptWords = words.filter((word) => !wordIsRemoved(word, approved));
+  const keptWords = words.filter((word, index) => !wordIsRemoved(word, index, approved));
   const missingUniqueWords = [];
 
   for (const cut of approved.filter((item) => item.semanticHint)) {

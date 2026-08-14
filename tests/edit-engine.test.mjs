@@ -108,6 +108,32 @@ test("opening trim removes noise tokens before the first recognizable word", () 
   assert.equal(validateEditedResult(openingWords, cuts).reconstructedTranscript, "Welcome");
 });
 
+test("opening trim ignores hallucinated timestamp tokens before a recognizable speech run", () => {
+  const openingWords = [
+    { word: "10", start: 0, end: 1.02, confidence: 0.2725 },
+    { word: ".10.", start: 1.02, end: 1.34, confidence: 0.1975 },
+    { word: "Contecration", start: 1.54, end: 2.06, confidence: 0.2861 },
+    { word: "purchases", start: 2.06, end: 2.48, confidence: 0.6597 },
+    { word: "that", start: 2.48, end: 2.76, confidence: 0.8203 },
+    { word: "get", start: 2.76, end: 2.9, confidence: 0.9536 },
+  ];
+  const cuts = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {
+    duration: 3,
+    audioSilences: [{ start: 0, end: 0.79, duration: 0.79, minimum_db: -120 }],
+    openingWordIndex: 2,
+    openingWordConfidence: 0.2861,
+  });
+  const openingCut = cuts.find((cut) => cut.openingTrim);
+
+  assert.ok(openingCut);
+  assert.equal(openingCut.start, 0);
+  assert.equal(openingCut.end, 1.45);
+  assert.equal(openingCut.validation.valid, true);
+  assert.equal(openingCut.status, "approved");
+  assert.ok(buildEdl(3, cuts).some((range) => range.action === "remove" && range.start === 0 && range.end === 1.45));
+  assert.match(validateEditedResult(openingWords, cuts).reconstructedTranscript, /^Contecration purchases/);
+});
+
 test("opening trim never removes the configured word-safety pre-roll", () => {
   const openingWords = [{ word: "hello", start: 0.08, end: 0.32 }];
   const cuts = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {

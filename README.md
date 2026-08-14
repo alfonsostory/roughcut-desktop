@@ -22,6 +22,8 @@ The semantic layer decides which word spans are likely repetitions or retakes. I
 
 Every proposed cut is approved by default, including high-risk semantic cuts and candidates carrying safety warnings. High-risk evidence remains visible in the queue, and the reviewer can choose **Keep** to restore that section. Candidates whose exact boundaries fail timestamp safety remain approved in the queue but are blocked from rendering so they cannot clip speech.
 
+Opening-word recognition can recover a low-confidence first word when it begins a contiguous, confident speech run. Earlier low-confidence tokens are treated as opening noise, and their timestamps do not block the leading trim; the recognizable word still keeps configured safety pre-roll.
+
 Breath evidence is treated as a pause cue, not as an independent cut boundary. The detector identifies the sound, then the editing engine maps the removal to the surrounding word timestamps and applies the same padding and transition validation as every other pause.
 
 For the head of each video, Roughcut selects the first recognizable word using transcript confidence and non-speech-token filtering. Bracketed sound labels, music markers, punctuation-only output, and low-confidence leading noise are removed with the opening trim. If every word is uncertain, it falls back to the earliest lexical token rather than risk clipping real speech.

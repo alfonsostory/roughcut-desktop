@@ -60,6 +60,21 @@ test("opening-word recognition skips noise labels and low-confidence noise token
   assert.equal(result.usedLowConfidenceFallback, false);
 });
 
+test("opening-word recognition keeps a low-confidence word that begins a confident speech run", () => {
+  const result = findFirstRecognizableWord([
+    { word: "10", start: 0, end: 1.02, confidence: 0.2725 },
+    { word: ".10.", start: 1.02, end: 1.34, confidence: 0.1975 },
+    { word: "Contecration", start: 1.54, end: 2.06, confidence: 0.2861 },
+    { word: "purchases", start: 2.06, end: 2.48, confidence: 0.6597 },
+    { word: "that", start: 2.48, end: 2.76, confidence: 0.8203 },
+    { word: "get", start: 2.76, end: 2.9, confidence: 0.9536 },
+  ]);
+
+  assert.equal(result.index, 2);
+  assert.equal(result.word.word, "Contecration");
+  assert.equal(result.usedLowConfidenceFallback, false);
+});
+
 test("opening-word recognition falls back conservatively when every word is uncertain", () => {
   const words = [
     { word: "Maybe", start: 0.2, end: 0.5, confidence: 0.31 },
