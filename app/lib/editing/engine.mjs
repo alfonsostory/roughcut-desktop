@@ -87,6 +87,9 @@ function createSilenceCut(words, previousIndex, config) {
 function createMergedSilenceCut(words, proposal, index, config) {
   const { before, after } = surroundingWords(words, proposal.start, proposal.end);
   const openingEvidence = proposal.evidence.find((item) => item.source === "opening_word");
+  const leadingAudioEvidence = proposal.evidence.find(
+    (item) => item.source === "audio_energy" && item.position === "leading",
+  );
   const validationWords = openingEvidence
     ? words.slice(openingEvidence.openingWordIndex)
     : words;
@@ -104,14 +107,16 @@ function createMergedSilenceCut(words, proposal, index, config) {
   const position = !before ? "leading" : !after ? "trailing" : "internal";
   const originalPause = round(
     position === "leading"
-      ? after?.start ?? proposal.end
+      ? leadingAudioEvidence?.end ?? after?.start ?? proposal.end
       : position === "trailing"
         ? proposal.end - (before?.end ?? proposal.start)
         : after.start - before.end,
   );
   const remainingPause = round(
     position === "leading"
-      ? (after?.start ?? proposal.end) - proposal.end
+      ? leadingAudioEvidence
+        ? leadingAudioEvidence.end - proposal.end
+        : (after?.start ?? proposal.end) - proposal.end
       : position === "trailing"
         ? proposal.start - (before?.end ?? proposal.start)
         : validation.resultingGap,
@@ -119,12 +124,12 @@ function createMergedSilenceCut(words, proposal, index, config) {
   const originalText = position === "leading"
     ? openingEvidence?.ignoredText
       ? `[opening noise: ${openingEvidence.ignoredText}]  ${after?.word ?? ""}`
-      : `[${originalPause.toFixed(2)}s leading silence]  ${after?.word ?? ""}`
+      : `[${originalPause.toFixed(2)}s leading silence]  ${words.find((word) => word.end > proposal.end)?.word ?? after?.word ?? ""}`
     : position === "trailing"
       ? `${before?.word ?? ""}  [${originalPause.toFixed(2)}s trailing silence]`
       : `${before.word}  [${originalPause.toFixed(2)}s pause]  ${after.word}`;
   const resultingText = position === "leading"
-    ? `[${remainingPause.toFixed(2)}s safe pre-roll]  ${after?.word ?? ""}`
+    ? `[${remainingPause.toFixed(2)}s safe pre-roll]  ${words.find((word) => word.end > proposal.end)?.word ?? after?.word ?? ""}`
     : position === "trailing"
       ? `${before?.word ?? ""}  [trimmed tail]`
       : `${before.word}  [${config.targetPause.toFixed(2)}s pause]  ${after.word}`;
@@ -133,7 +138,9 @@ function createMergedSilenceCut(words, proposal, index, config) {
     : breathDetected
       ? "Breath-like broadband audio was detected inside a timestamp-confirmed word gap."
       : silenceVerified
-        ? `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
+        ? leadingAudioEvidence
+          ? "Measured opening silence ends at the first detected audio activity."
+          : `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
         : "Word timestamps confirm the removable region.";
   const actionLabel = position === "leading"
     ? `Trim opening silence to ${remainingPause.toFixed(2)}s of word-safe pre-roll.`
@@ -192,6 +199,9 @@ function generateSilenceCandidates(words, config, analysis) {
   const proposals = [];
   const duration = analysis.duration ?? words.at(-1).end;
   const side = Math.max(config.minimumSpeechSide, config.speechSafetyPadding, config.targetPause / 2);
+  const leadingAudioSilence = (analysis.audioSilences ?? [])
+    .filter((silence) => silence.start <= 0.02 && silence.end - silence.start > config.longPauseThreshold + 0.001)
+    .sort((left, right) => right.end - left.end)[0];
 
   for (let index = 0; index < words.length - 1; index += 1) {
     const previous = words[index];
@@ -214,7 +224,15 @@ function generateSilenceCandidates(words, config, analysis) {
     : 0;
   const openingWordIndex = Math.max(0, Math.min(words.length - 1, requestedOpeningIndex));
   const openingWord = words[openingWordIndex];
-  if (openingWord.start > side + 0.001) {
+  if (leadingAudioSilence && leadingAudioSilence.end > side + 0.001) {
+    proposals.push({
+      start: 0,
+      end: leadingAudioSilence.end - side,
+      sources: ["audio_energy"],
+      thresholdDb: analysis.silenceThresholdDb ?? -40,
+      evidence: [{ source: "audio_energy", position: "leading", ...leadingAudioSilence }],
+    });
+  } else if (openingWord.start > side + 0.001) {
     proposals.push({
       start: 0,
       end: openingWord.start - side,

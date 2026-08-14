@@ -46,6 +46,7 @@ export interface OpeningWordResult {
   confidence: number | null;
   ignoredLeadingTokens: number;
   usedLowConfidenceFallback: boolean;
+  audioAnchored?: boolean;
 }
 
 export function normalizeTranscriptPayload(payload: unknown): NormalizedTranscriptPayload;

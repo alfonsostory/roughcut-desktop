@@ -91,6 +91,30 @@ test("opening-word recognition keeps a low-confidence word that begins a confide
   assert.equal(result.usedLowConfidenceFallback, false);
 });
 
+test("opening-word recognition uses the end of measured silence to preserve uncertain speech", () => {
+  const result = normalizeTranscriptPayload({
+    duration: 3,
+    words: [
+      { word: "10", start: 0, end: 1.02, confidence: 0.2725 },
+      { word: ".10.", start: 1.02, end: 1.34, confidence: 0.1975 },
+      { word: "Contecration", start: 1.54, end: 2.06, confidence: 0.2861 },
+      { word: "purchases", start: 2.06, end: 2.48, confidence: 0.6597 },
+      { word: "that", start: 2.48, end: 2.76, confidence: 0.8203 },
+      { word: "get", start: 2.76, end: 2.9, confidence: 0.9536 },
+    ],
+    audio_analysis: {
+      frame_duration: 0.01,
+      silence_threshold_db: -40,
+      minimum_silence: 0.2,
+      silences: [{ start: 0, end: 0.79, duration: 0.79, minimum_db: -120 }],
+    },
+  });
+
+  assert.equal(result.opening_word.index, 0);
+  assert.equal(result.opening_word.word.word, "10");
+  assert.equal(result.opening_word.audioAnchored, true);
+});
+
 test("opening-word recognition falls back conservatively when every word is uncertain", () => {
   const words = [
     { word: "Maybe", start: 0.2, end: 0.5, confidence: 0.31 },

@@ -108,7 +108,7 @@ test("opening trim removes noise tokens before the first recognizable word", () 
   assert.equal(validateEditedResult(openingWords, cuts).reconstructedTranscript, "Welcome");
 });
 
-test("opening trim ignores hallucinated timestamp tokens before a recognizable speech run", () => {
+test("measured audio activity preserves low-confidence opening speech", () => {
   const openingWords = [
     { word: "10", start: 0, end: 1.02, confidence: 0.2725 },
     { word: ".10.", start: 1.02, end: 1.34, confidence: 0.1975 },
@@ -120,18 +120,18 @@ test("opening trim ignores hallucinated timestamp tokens before a recognizable s
   const cuts = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {
     duration: 3,
     audioSilences: [{ start: 0, end: 0.79, duration: 0.79, minimum_db: -120 }],
-    openingWordIndex: 2,
-    openingWordConfidence: 0.2861,
+    openingWordIndex: 0,
+    openingWordConfidence: 0.2725,
   });
   const openingCut = cuts.find((cut) => cut.openingTrim);
 
   assert.ok(openingCut);
   assert.equal(openingCut.start, 0);
-  assert.equal(openingCut.end, 1.45);
+  assert.equal(openingCut.end, 0.7);
   assert.equal(openingCut.validation.valid, true);
   assert.equal(openingCut.status, "approved");
-  assert.ok(buildEdl(3, cuts).some((range) => range.action === "remove" && range.start === 0 && range.end === 1.45));
-  assert.match(validateEditedResult(openingWords, cuts).reconstructedTranscript, /^Contecration purchases/);
+  assert.ok(buildEdl(3, cuts).some((range) => range.action === "remove" && range.start === 0 && range.end === 0.7));
+  assert.match(validateEditedResult(openingWords, cuts).reconstructedTranscript, /^10 \.10\. Contecration purchases/);
 });
 
 test("opening trim never removes the configured word-safety pre-roll", () => {
@@ -158,7 +158,7 @@ test("audio-energy analysis adds head, tail, and timestamp-independent silence c
       { start: 2.45, end: 3.18, duration: 0.73, minimum_db: -58 },
     ],
   });
-  assert.ok(cuts.some((cut) => cut.start === 0 && cut.end === 1.11));
+  assert.ok(cuts.some((cut) => cut.start === 0 && cut.end === 0.96));
   assert.ok(cuts.some((cut) => cut.audioVerified && cut.start <= 1.64 && cut.end >= 1.91));
   assert.ok(cuts.some((cut) => cut.start === 2.39 && cut.end === 3.2));
   assert.ok(cuts.every((cut) => cut.validation.valid));

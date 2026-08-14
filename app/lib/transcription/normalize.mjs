@@ -145,12 +145,30 @@ export function normalizeTranscriptPayload(payload) {
       }
     : undefined;
 
+  const transcriptOpening = findFirstRecognizableWord(words);
+  const leadingSilence = audioAnalysis?.silences.find((silence) => silence.start <= 0.02);
+  const audioOpeningIndex = leadingSilence
+    ? words.findIndex((word) => word.end >= leadingSilence.end - 0.02)
+    : -1;
+  const openingWord = audioOpeningIndex >= 0 && audioOpeningIndex < transcriptOpening.index
+    ? {
+        index: audioOpeningIndex,
+        word: words[audioOpeningIndex],
+        confidence: isFiniteNumber(words[audioOpeningIndex].confidence)
+          ? words[audioOpeningIndex].confidence
+          : null,
+        ignoredLeadingTokens: audioOpeningIndex,
+        usedLowConfidenceFallback: false,
+        audioAnchored: true,
+      }
+    : transcriptOpening;
+
   return {
     ...payload,
     duration: round(Math.max(suppliedDuration, lastWordEnd)),
     words,
     semantic_hints: Array.isArray(payload.semantic_hints) ? payload.semantic_hints : [],
     audio_analysis: audioAnalysis,
-    opening_word: findFirstRecognizableWord(words),
+    opening_word: openingWord,
   };
 }
