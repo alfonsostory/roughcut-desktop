@@ -7,6 +7,8 @@ from pathlib import Path
 import mlx_whisper
 import numpy as np
 
+from breath_detection import detect_audio_breaths
+
 
 def detect_audio_silences(
     samples,
@@ -116,6 +118,12 @@ def main():
             "silence_threshold_db": -40.0,
             "minimum_silence": 0.2,
             "silences": detect_audio_silences(audio_samples),
+            "breaths": detect_audio_breaths(audio_samples, words),
+            "breath_detection": {
+                "minimum_duration": 0.12,
+                "minimum_word_gap": 0.18,
+                "mode": "broadband_audio_between_timed_words",
+            },
         },
         "transcription": {
             "engine": "mlx-whisper",

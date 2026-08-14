@@ -87,8 +87,10 @@ function createSilenceCut(words, previousIndex, config) {
 function createMergedSilenceCut(words, proposal, index, config) {
   const { before, after } = surroundingWords(words, proposal.start, proposal.end);
   const transcriptValidation = validateCut(proposal, words, config);
-  const audioVerified = proposal.sources.has("audio_energy");
-  const validation = audioVerified
+  const silenceVerified = proposal.sources.has("audio_energy");
+  const breathDetected = proposal.sources.has("breath");
+  const audioVerified = silenceVerified || breathDetected;
+  const validation = silenceVerified
     ? {
         valid: proposal.end > proposal.start,
         issues: [],
@@ -120,9 +122,11 @@ function createMergedSilenceCut(words, proposal, index, config) {
     : position === "trailing"
       ? `${before?.word ?? ""}  [trimmed tail]`
       : `${before.word}  [${config.targetPause.toFixed(2)}s pause]  ${after.word}`;
-  const sourceLabel = audioVerified
-    ? `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
-    : "Word timestamps confirm the removable region.";
+  const sourceLabel = breathDetected
+    ? "Breath-like broadband audio was detected inside a timestamp-confirmed word gap."
+    : silenceVerified
+      ? `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
+      : "Word timestamps confirm the removable region.";
   const actionLabel = position === "leading"
     ? `Trim opening silence to ${remainingPause.toFixed(2)}s of word-safe pre-roll.`
     : `Shorten ${position} silence toward ${config.targetPause.toFixed(2)}s.`;
@@ -132,7 +136,11 @@ function createMergedSilenceCut(words, proposal, index, config) {
     start: round(proposal.start),
     end: round(proposal.end),
     type: "silence",
-    confidence: audioVerified ? 0.98 : 0.9,
+    confidence: silenceVerified
+      ? 0.98
+      : breathDetected
+        ? Math.max(0.82, ...proposal.evidence.filter((item) => item.source === "breath").map((item) => item.confidence ?? 0.82))
+        : 0.9,
     risk: validation.valid ? "low" : "high",
     reason: `${sourceLabel} ${actionLabel}`,
     original_text: originalText,
@@ -141,6 +149,7 @@ function createMergedSilenceCut(words, proposal, index, config) {
     validation,
     sourceWordRange: null,
     audioVerified,
+    breathDetected,
     evidence: proposal.evidence,
   };
 }
@@ -215,6 +224,21 @@ function generateSilenceCandidates(words, config, analysis) {
       sources: ["audio_energy"],
       thresholdDb: analysis.silenceThresholdDb ?? -40,
       evidence: [{ source: "audio_energy", ...silence }],
+    });
+  }
+
+  for (const breath of analysis.audioBreaths ?? []) {
+    const before = [...words].reverse().find((word) => word.end <= breath.start + 0.001);
+    const after = words.find((word) => word.start >= breath.end - 0.001);
+    if (!before || !after) continue;
+    if (breath.start < before.end - 0.001 || breath.end > after.start + 0.001) continue;
+    const wordGap = after.start - before.end;
+    if (wordGap <= Math.max(config.minimumTransition, side * 2) + 0.001) continue;
+    proposals.push({
+      start: before.end + side,
+      end: after.start - side,
+      sources: ["breath"],
+      evidence: [{ source: "breath", ...breath, wordGap: round(wordGap) }],
     });
   }
 

@@ -9,6 +9,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `app/RoughcutWorkspace.tsx` is the local video, timeline, review, correction, safety-setting, and export UI.
 - `transcription/server.mjs` is a loopback-only media service that keeps the active source in a temporary project directory for transcription/rendering, then removes it when the video is replaced or the workspace closes.
 - `transcription/transcribe.py` runs MLX Whisper locally, emits word timestamps, and measures -40 dB silence regions in 10 ms frames.
+- `transcription/breath_detection.py` detects sustained breath-like broadband audio only inside gaps between timed words, so breathing can be shortened as a pause without crossing speech.
 - `app/lib/editing/retakes.mjs` identifies nearby repeated openings and likely final takes; unmatched earlier information is marked for human review.
 - `transcription/render.swift` renders approved EDL ranges from the original video while automatically compensating for source audio/video edit-list offsets.
 - `transcription/analyze_silence.py` measures the completed preview and reports any remaining gaps above 200 ms back to the review UI.
@@ -18,6 +19,8 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `tests/edit-engine.test.mjs` covers rule behavior independently of the UI.
 
 The semantic layer decides which word spans are likely repetitions or retakes. It supplies word-index hints only. The editing engine derives every second-level boundary from word timestamps or verified silent audio, protects 90 ms on both sides of speech, and rejects unverified boundaries inside speech.
+
+Breath evidence is treated as a pause cue, not as an independent cut boundary. The detector identifies the sound, then the editing engine maps the removal to the surrounding word timestamps and applies the same padding and transition validation as every other pause.
 
 ## Run locally
 

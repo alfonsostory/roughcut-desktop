@@ -20,6 +20,32 @@ test("normalizes a valid word-timestamp transcript", () => {
   assert.deepEqual(result.semantic_hints, []);
 });
 
+test("normalizes breath evidence for the pause-cut engine", () => {
+  const result = normalizeTranscriptPayload({
+    duration: 1.2,
+    words: [
+      { word: "hello", start: 0.1, end: 0.4 },
+      { word: "again", start: 0.8, end: 1.1 },
+    ],
+    audio_analysis: {
+      frame_duration: 0.01,
+      silence_threshold_db: -40,
+      minimum_silence: 0.2,
+      silences: [],
+      breaths: [{ start: 0.46, end: 0.7, confidence: 1.2, mean_db: -31 }],
+    },
+  });
+
+  assert.deepEqual(result.audio_analysis.breaths, [{
+    start: 0.46,
+    end: 0.7,
+    duration: 0.24,
+    confidence: 1,
+    mean_db: -31,
+    evidence: undefined,
+  }]);
+});
+
 test("rejects invalid and out-of-order timestamps", () => {
   assert.throws(() => normalizeTranscriptPayload({ words: [{ word: "bad", start: 1, end: 0.5 }] }), /invalid time range/);
   assert.throws(() => normalizeTranscriptPayload({ words: [

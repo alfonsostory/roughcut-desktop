@@ -29,6 +29,46 @@ test("pauses at or below the calibrated 200 ms maximum are left alone", () => {
   assert.equal(generateCandidateCuts(closeWords).length, 0);
 });
 
+test("breathing inside a safe word gap is treated as a pause", () => {
+  const breathWords = [
+    { word: "take", start: 0, end: 0.4 },
+    { word: "two", start: 0.595, end: 0.9 },
+  ];
+  const cuts = generateCandidateCuts(breathWords, [], DEFAULT_CONFIG, {
+    duration: 0.9,
+    audioSilences: [],
+    audioBreaths: [{
+      start: 0.43,
+      end: 0.56,
+      duration: 0.13,
+      confidence: 0.91,
+      evidence: "broadband_nonverbal_audio_between_words",
+    }],
+  });
+  const breathCut = cuts.find((cut) => cut.breathDetected);
+
+  assert.ok(breathCut);
+  assert.equal(breathCut.start, 0.49);
+  assert.equal(breathCut.end, 0.505);
+  assert.equal(breathCut.validation.resultingGap, 0.18);
+  assert.equal(breathCut.status, "approved");
+  assert.match(breathCut.reason, /Breath-like broadband audio/);
+});
+
+test("breath evidence overlapping a timed word is never cut", () => {
+  const breathWords = [
+    { word: "take", start: 0.1, end: 0.4 },
+    { word: "two", start: 0.7, end: 0.9 },
+  ];
+  const cuts = generateCandidateCuts(breathWords, [], DEFAULT_CONFIG, {
+    duration: 0.9,
+    audioSilences: [],
+    audioBreaths: [{ start: 0.35, end: 0.52, duration: 0.17, confidence: 0.9 }],
+  });
+
+  assert.equal(cuts.some((cut) => cut.breathDetected), false);
+});
+
 test("opening silence is trimmed even when it is below the internal-pause threshold", () => {
   const openingWords = [{ word: "hello", start: 0.16, end: 0.42 }];
   const [cut] = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {

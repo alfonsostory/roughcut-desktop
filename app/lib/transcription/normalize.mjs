@@ -57,6 +57,20 @@ export function normalizeTranscriptPayload(payload) {
               minimum_db: isFiniteNumber(item.minimum_db) ? item.minimum_db : undefined,
             }))
           : [],
+        breaths: Array.isArray(payload.audio_analysis.breaths)
+          ? payload.audio_analysis.breaths
+            .filter((item) => isFiniteNumber(item?.start) && isFiniteNumber(item?.end) && item.end > item.start)
+            .map((item) => ({
+              start: round(Math.max(0, item.start)),
+              end: round(item.end),
+              duration: round(item.end - item.start),
+              confidence: isFiniteNumber(item.confidence)
+                ? Math.max(0, Math.min(1, item.confidence))
+                : 0.75,
+              mean_db: isFiniteNumber(item.mean_db) ? item.mean_db : undefined,
+              evidence: typeof item.evidence === "string" ? item.evidence : undefined,
+            }))
+          : [],
       }
     : undefined;
 

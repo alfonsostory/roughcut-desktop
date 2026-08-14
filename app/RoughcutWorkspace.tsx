@@ -8,6 +8,7 @@ import {
   generateCandidateCuts,
   validateCut,
   validateEditedResult,
+  type AudioBreath,
   type AudioSilence,
   type CandidateCut,
   type CutConfig,
@@ -39,6 +40,8 @@ const typeLabel: Record<CandidateCut["type"], string> = {
   filler: "Filler",
 };
 
+const cutLabel = (cut: CandidateCut) => cut.breathDetected ? "Breath pause" : typeLabel[cut.type];
+
 const waveform = [18, 35, 44, 29, 52, 66, 34, 59, 71, 43, 31, 55, 19, 14, 11, 13, 29, 48, 63, 38, 57, 74, 45, 26, 17, 12, 33, 62, 77, 54, 40, 67, 49, 24, 16, 12, 10, 35, 58, 69, 47, 61, 79, 52, 36, 28, 14, 12, 25, 47, 66, 73, 42, 56, 31, 19, 13, 22, 51, 68, 39, 57, 72, 44, 30, 16, 12, 37, 64, 49, 72, 55, 32, 18, 28, 61, 75, 46, 33, 56, 70, 38, 22, 15, 29, 59, 78, 54, 42, 63, 47, 26, 18, 35, 67, 52];
 
 export default function RoughcutWorkspace() {
@@ -55,6 +58,7 @@ export default function RoughcutWorkspace() {
   const [words, setWords] = useState<WordTimestamp[]>(sampleWords);
   const [hints, setHints] = useState<SemanticHint[]>(sampleSemanticHints);
   const [audioSilences, setAudioSilences] = useState<AudioSilence[]>([]);
+  const [audioBreaths, setAudioBreaths] = useState<AudioBreath[]>([]);
   const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
   const [duration, setDuration] = useState(SAMPLE_DURATION);
   const [config, setConfig] = useState<CutConfig>({ ...DEFAULT_CONFIG });
@@ -182,6 +186,7 @@ export default function RoughcutWorkspace() {
     setCandidates(generateCandidateCuts(words, hints, next, {
       duration,
       audioSilences,
+      audioBreaths,
       silenceThresholdDb,
     }));
   };
@@ -193,20 +198,23 @@ export default function RoughcutWorkspace() {
       detectRetakeHints(normalized.words, { retakeWindow: config.retakeWindow }),
     );
     const detectedSilences = normalized.audio_analysis?.silences ?? [];
+    const detectedBreaths = normalized.audio_analysis?.breaths ?? [];
     const detectedThreshold = normalized.audio_analysis?.silence_threshold_db ?? -40;
     setWords(normalized.words);
     setHints(semanticHints);
     setAudioSilences(detectedSilences);
+    setAudioBreaths(detectedBreaths);
     setSilenceThresholdDb(detectedThreshold);
     setDuration(normalized.duration);
     setCandidates(generateCandidateCuts(normalized.words, semanticHints, config, {
       duration: normalized.duration,
       audioSilences: detectedSilences,
+      audioBreaths: detectedBreaths,
       silenceThresholdDb: detectedThreshold,
     }));
     setTranscriptionState("ready");
     const retakeCount = semanticHints.filter((hint) => hint.kind === "retake").length;
-    setImportNote(`${normalized.words.length} timed words · ${detectedSilences.length} silences · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
+    setImportNote(`${normalized.words.length} timed words · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
   };
 
   const transcribeVideo = async (file: File) => {
@@ -258,6 +266,7 @@ export default function RoughcutWorkspace() {
     setWords([]);
     setHints([]);
     setAudioSilences([]);
+    setAudioBreaths([]);
     setCandidates([]);
     setSelectedId(undefined);
     sourceFileRef.current = file;
@@ -457,13 +466,14 @@ export default function RoughcutWorkspace() {
                   className={`cut-marker ${cut.status === "needs_review" ? "review" : ""} ${selectedId === cut.id ? "selected" : ""}`}
                   style={{ left: `${(cut.start / duration) * 100}%`, width: `${Math.max(1.2, ((cut.end - cut.start) / duration) * 100)}%` }}
                   onClick={() => previewCut(cut)}
-                  aria-label={`Preview ${typeLabel[cut.type]} at ${formatTime(cut.start)}`}
+                  aria-label={`Preview ${cutLabel(cut)} at ${formatTime(cut.start)}`}
                 />
               ))}
               <span className="playhead" />
             </div>
             <div className="timeline-status">
               <span><i className="status-check">✓</i> Boundaries use timed words or verified silence</span>
+              <span><i className="status-check">✓</i> Breaths inside word gaps count as pauses</span>
               <span><i className="status-check">✓</i> Minimum speech padding {Math.round(config.minimumSpeechSide * 1000)} ms</span>
               <span className={reviewCount ? "needs-attention" : ""}><i>!</i> {reviewCount} need review</span>
             </div>
@@ -562,7 +572,7 @@ function CutCard({ cut, number, selected, adjusting, onPreview, onStatus, onAdju
     <article className={`cut-card ${selected ? "selected" : ""} status-${cut.status}`}>
       <div className="cut-card-head">
         <span className="cut-number">{String(number).padStart(2, "0")}</span>
-        <div className="cut-kind"><span className={`type-icon type-${cut.type}`}>{cut.type === "silence" ? "Ⅱ" : cut.type === "retake" ? "↻" : "≋"}</span><div><strong>{typeLabel[cut.type]}</strong><span>{formatTime(cut.start)} — {formatTime(cut.end)} · {(cut.end - cut.start).toFixed(2)}s</span></div></div>
+        <div className="cut-kind"><span className={`type-icon type-${cut.type}`}>{cut.breathDetected ? "≈" : cut.type === "silence" ? "Ⅱ" : cut.type === "retake" ? "↻" : "≋"}</span><div><strong>{cutLabel(cut)}</strong><span>{formatTime(cut.start)} — {formatTime(cut.end)} · {(cut.end - cut.start).toFixed(2)}s</span></div></div>
         <button className="preview-button" onClick={onPreview}><span>▶</span> Preview</button>
       </div>
       <div className="confidence-row">

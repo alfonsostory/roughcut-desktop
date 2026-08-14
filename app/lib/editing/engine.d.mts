@@ -42,6 +42,7 @@ export interface CandidateCut {
   semanticHint?: { removedText: string; keptText: string; uniqueTerms: string[] };
   humanOverride?: boolean;
   audioVerified?: boolean;
+  breathDetected?: boolean;
   evidence?: Array<Record<string, unknown>>;
 }
 
@@ -52,13 +53,27 @@ export interface AudioSilence {
   minimum_db?: number;
 }
 
+export interface AudioBreath {
+  start: number;
+  end: number;
+  duration: number;
+  confidence: number;
+  mean_db?: number;
+  evidence?: string;
+}
+
 export const DEFAULT_CONFIG: Readonly<CutConfig>;
 export function validateCut(cut: { start: number; end: number }, words: WordTimestamp[], config?: CutConfig): CandidateCut["validation"];
 export function generateCandidateCuts(
   words: WordTimestamp[],
   hints?: SemanticHint[],
   config?: Partial<CutConfig>,
-  analysis?: { duration?: number; audioSilences?: AudioSilence[]; silenceThresholdDb?: number },
+  analysis?: {
+    duration?: number;
+    audioSilences?: AudioSilence[];
+    audioBreaths?: AudioBreath[];
+    silenceThresholdDb?: number;
+  },
 ): CandidateCut[];
 export function buildEdl(duration: number, candidates: CandidateCut[]): Array<{ start: number; end: number; action: "keep" | "remove"; candidateCutIds?: string[] }>;
 export function validateEditedResult(words: WordTimestamp[], candidates: CandidateCut[], config?: CutConfig): {
