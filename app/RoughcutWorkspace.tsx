@@ -21,6 +21,7 @@ import { resolvePreviewRefreshAction, shouldQueueAutomaticPreviewRefresh } from 
 import { SAMPLE_DURATION, sampleSemanticHints, sampleWords } from "./lib/editing/sample";
 import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
 import TranscriptWaveform from "./TranscriptWaveform";
+import TranscriptParagraph from "./TranscriptParagraph";
 
 type Filter = "all" | "approved" | "rejected";
 type TranscriptionState = "idle" | "transcribing" | "ready" | "error";
@@ -562,6 +563,13 @@ export default function RoughcutWorkspace() {
             cuts={candidates}
             peaks={waveformPeaks}
             duration={duration}
+            currentTime={playbackTime}
+            onSeek={seekSource}
+          />
+
+          <TranscriptParagraph
+            words={words}
+            candidates={candidates}
             currentTime={playbackTime}
             onSeek={seekSource}
           />
