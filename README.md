@@ -14,6 +14,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `transcription/render.swift` renders approved EDL ranges from the original video while automatically compensating for source audio/video edit-list offsets.
 - The timestamp inspector displays real audio-energy peaks beneath word-level transcript blocks, follows source playback, and supports click-to-seek comparison at adjustable time scales.
 - The paragraph transcript provides readable source and after-cuts views, highlights words removed by the active EDL, and keeps every visible word linked to its source timestamp.
+- Low-confidence English wording receives conservative local correction suggestions. Only replacements confirmed by high-confidence vocabulary elsewhere in the same transcript apply automatically; standalone spelling guesses wait for acceptance. Corrections affect only the reading layer, remain visibly marked, are exported alongside immutable originals, and are reversible individually or all at once.
 - `transcription/analyze_silence.py` measures the completed preview and reports any remaining gaps above 200 ms back to the review UI.
 - `transcription/export-package.mjs` labels kept ranges as `001`, `002`, `003` and creates the CapCut import manifest and guide.
 - `app/api/corrections/route.ts` saves human approvals, rejections, and boundary adjustments.

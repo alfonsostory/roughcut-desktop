@@ -1,6 +1,8 @@
 import argparse
 import json
 import os
+import subprocess
+import sys
 import wave
 from pathlib import Path
 
@@ -54,6 +56,24 @@ def create_waveform_peaks(samples, target_peaks=360):
         raw_peaks.append(float(np.percentile(window, 95)) if len(window) else 0.0)
     ceiling = max(float(np.percentile(raw_peaks, 98)), 1e-6)
     return [round(min(1.0, np.sqrt(peak / ceiling)), 4) for peak in raw_peaks]
+
+
+def detect_transcript_corrections(words, language):
+    if language != "en" or sys.platform != "darwin":
+        return []
+    try:
+        completed = subprocess.run(
+            ["swift", str(Path(__file__).with_name("spellcheck.swift"))],
+            input=json.dumps(words),
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=20,
+        )
+        corrections = json.loads(completed.stdout)
+        return corrections if isinstance(corrections, list) else []
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return []
 
 
 def load_audio(path: Path):
@@ -120,12 +140,14 @@ def main():
                 word["confidence"] = round(float(probability), 4)
             words.append(word)
 
+    language = result.get("language")
     payload = {
         "duration": round(duration, 3),
-        "language": result.get("language"),
+        "language": language,
         "text": result.get("text", "").strip(),
         "words": words,
         "semantic_hints": [],
+        "transcript_corrections": detect_transcript_corrections(words, language),
         "audio_analysis": {
             "frame_duration": 0.01,
             "silence_threshold_db": -40.0,

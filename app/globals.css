@@ -186,6 +186,23 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 .paragraph-view-toggle button.active { color: white; background: var(--forest); box-shadow: 0 2px 6px rgba(23, 63, 54, .18); }
 .paragraph-transcript-meta { display: flex; gap: 18px; padding: 14px 0 10px; color: var(--muted); font-size: 8px; }
 .paragraph-transcript-meta strong { color: var(--ink); font-size: 10px; }
+.autocorrection-panel { margin-bottom: 11px; overflow: hidden; border: 1px solid #d9e5df; border-radius: 11px; background: #f4faf7; }
+.autocorrection-summary { display: flex; align-items: center; gap: 10px; padding: 10px 11px; }
+.autocorrection-mark { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--forest); background: var(--lime); font-family: Georgia, serif; font-size: 11px; font-weight: 800; }
+.autocorrection-summary > div { flex: 1; min-width: 0; }
+.autocorrection-summary strong { display: block; font-size: 9px; }
+.autocorrection-summary p { margin: 3px 0 0; color: var(--muted); font-size: 8px; }
+.autocorrection-summary > button, .autocorrection-changes button { border: 0; border-radius: 7px; padding: 6px 8px; color: var(--forest-2); background: #e1efe9; font-size: 8px; font-weight: 750; cursor: pointer; }
+.autocorrection-changes { max-height: 145px; overflow-y: auto; border-top: 1px solid #dfe9e4; background: white; }
+.autocorrection-changes > div { display: grid; grid-template-columns: minmax(130px, auto) 1fr auto; align-items: center; gap: 10px; padding: 8px 11px; border-top: 1px solid #eef1ee; font-size: 8px; }
+.autocorrection-changes > div:first-child { border-top: 0; }
+.autocorrection-changes span { color: var(--muted); }
+.autocorrection-changes span strong { color: var(--forest-2); }
+.autocorrection-changes small { overflow: hidden; color: #8a928e; text-overflow: ellipsis; white-space: nowrap; }
+.autocorrection-clear { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; padding: 9px 11px; border: 1px solid #e1e8e3; border-radius: 10px; color: var(--muted); background: #f7faf8; }
+.autocorrection-clear > span { flex: 0 0 auto; width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; color: var(--forest-2); background: var(--mint); font-size: 8px; }
+.autocorrection-clear p { margin: 0; font-size: 8px; }
+.autocorrection-clear strong { color: var(--ink); }
 .paragraph-transcript-copy { min-height: 126px; max-height: 260px; overflow-y: auto; margin: 0; padding: 17px; border: 1px solid #e8ebe6; border-radius: 11px; background: #fafbf8; font-family: Georgia, 'Times New Roman', serif; font-size: 16px; line-height: 2.05; }
 .paragraph-transcript-copy button { display: inline; margin: 0 4px 0 0; border: 0; border-radius: 4px; padding: 2px 3px; color: #26312d; background: transparent; font-family: inherit; font-size: inherit; line-height: inherit; cursor: pointer; transition: color .15s, background .15s, box-shadow .15s; }
 .paragraph-transcript-copy button:hover { background: #e8efeb; box-shadow: 0 0 0 2px #e8efeb; }
@@ -193,6 +210,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 .paragraph-transcript-copy button.removed { color: #a26b62; background: #fff0ed; text-decoration: line-through; text-decoration-color: rgba(171, 79, 63, .65); }
 .paragraph-transcript-copy button.removed.active { color: white; background: #ae5d4e; box-shadow: 0 0 0 2px #ae5d4e; }
 .paragraph-transcript-copy button.low-confidence:not(.removed):not(.active) { color: #956425; background: #fff4df; text-decoration: underline dotted #c58b3f; text-underline-offset: 4px; }
+.paragraph-transcript-copy button.auto-corrected:not(.removed):not(.active) { color: #24634f; background: #e1f1e9; text-decoration: underline wavy #62a889; text-underline-offset: 4px; }
 .paragraph-transcript-empty { min-height: 126px; display: grid; place-items: center; border: 1px dashed #dfe3dd; border-radius: 11px; color: var(--muted); background: #fafbf8; font-size: 9px; }
 .paragraph-transcript-legend { display: flex; align-items: center; gap: 14px; padding-top: 10px; color: var(--muted); font-size: 8px; }
 .paragraph-transcript-legend span { display: flex; align-items: center; gap: 5px; }
@@ -200,6 +218,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 .paragraph-transcript-legend .paragraph-current { background: var(--forest-2); }
 .paragraph-transcript-legend .paragraph-removed { background: #f3c9c1; border: 1px solid #d99588; }
 .paragraph-transcript-legend .paragraph-uncertain { background: #ffebbd; border: 1px solid #ddb979; }
+.paragraph-transcript-legend .paragraph-corrected { background: #d9eee5; border: 1px solid #77ac98; }
 
 .settings-card { overflow: hidden; box-shadow: none; }
 .settings-card summary { cursor: pointer; min-height: 52px; padding: 0 16px; justify-content: space-between; list-style: none; font-size: 11px; font-weight: 700; }
@@ -312,6 +331,10 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
   .transcript-paragraph-head { display: block; }
   .paragraph-view-toggle { width: max-content; margin-top: 14px; }
   .paragraph-transcript-meta { gap: 9px; flex-wrap: wrap; }
+  .autocorrection-summary { align-items: flex-start; flex-wrap: wrap; }
+  .autocorrection-summary > div { min-width: calc(100% - 42px); }
+  .autocorrection-changes > div { grid-template-columns: 1fr auto; }
+  .autocorrection-changes small { grid-column: 1 / -1; grid-row: 2; }
 }
 
 @media (prefers-reduced-motion: reduce) {

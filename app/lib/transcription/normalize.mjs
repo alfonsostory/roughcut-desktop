@@ -162,12 +162,40 @@ export function normalizeTranscriptPayload(payload) {
         audioAnchored: true,
       }
     : transcriptOpening;
+  const seenCorrectionIndexes = new Set();
+  const transcriptCorrections = Array.isArray(payload.transcript_corrections)
+    ? payload.transcript_corrections.flatMap((item) => {
+        const wordIndex = Number.isInteger(item?.word_index) ? item.word_index : -1;
+        const correctedText = typeof item?.corrected_text === "string" ? item.corrected_text.trim() : "";
+        if (
+          wordIndex < 0
+          || wordIndex >= words.length
+          || seenCorrectionIndexes.has(wordIndex)
+          || !correctedText
+          || correctedText.toLocaleLowerCase() === words[wordIndex].word.toLocaleLowerCase()
+        ) return [];
+        seenCorrectionIndexes.add(wordIndex);
+        return [{
+          word_index: wordIndex,
+          original_text: words[wordIndex].word,
+          corrected_text: correctedText,
+          confidence: isFiniteNumber(item.confidence)
+            ? Math.max(0, Math.min(1, item.confidence))
+            : 0.7,
+          reason: typeof item.reason === "string" && item.reason.trim()
+            ? item.reason.trim()
+            : "Low-confidence transcript wording was corrected locally.",
+          status: item.status === "reverted" ? "reverted" : "applied",
+        }];
+      })
+    : [];
 
   return {
     ...payload,
     duration: round(Math.max(suppliedDuration, lastWordEnd)),
     words,
     semantic_hints: Array.isArray(payload.semantic_hints) ? payload.semantic_hints : [],
+    transcript_corrections: transcriptCorrections,
     audio_analysis: audioAnalysis,
     opening_word: openingWord,
   };

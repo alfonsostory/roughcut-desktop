@@ -23,6 +23,7 @@ test("server-renders the rough-cut review workspace", async () => {
   assert.match(html, /Click a word or the waveform to seek the source video/);
   assert.match(html, /Paragraph transcript/);
   assert.match(html, /After cuts/);
+  assert.match(html, /Auto correction checked this transcript/);
   assert.match(html, /Export \d+ segments/);
   assert.match(html, /Every proposed cut starts approved, including high-risk cuts/);
   assert.match(html, /High-risk cut approved by default/);

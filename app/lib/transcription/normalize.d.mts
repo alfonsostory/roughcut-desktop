@@ -1,11 +1,21 @@
 import type { SemanticHint, WordTimestamp } from "../editing/engine.mjs";
 
+export interface TranscriptCorrection {
+  word_index: number;
+  original_text: string;
+  corrected_text: string;
+  confidence: number;
+  reason: string;
+  status: "applied" | "reverted";
+}
+
 export interface TranscriptPayload {
   duration?: number;
   language?: string;
   text?: string;
   words: WordTimestamp[];
   semantic_hints?: SemanticHint[];
+  transcript_corrections?: Array<Partial<TranscriptCorrection>>;
   audio_analysis?: {
     frame_duration: number;
     silence_threshold_db: number;
@@ -37,6 +47,7 @@ export interface NormalizedTranscriptPayload extends TranscriptPayload {
   duration: number;
   words: WordTimestamp[];
   semantic_hints: SemanticHint[];
+  transcript_corrections: TranscriptCorrection[];
   opening_word: OpeningWordResult;
 }
 

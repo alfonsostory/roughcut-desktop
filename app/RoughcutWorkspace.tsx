@@ -19,7 +19,7 @@ import {
 import { detectRetakeHints, mergeSemanticHints } from "./lib/editing/retakes.mjs";
 import { resolvePreviewRefreshAction, shouldQueueAutomaticPreviewRefresh } from "./lib/editing/preview.mjs";
 import { SAMPLE_DURATION, sampleSemanticHints, sampleWords } from "./lib/editing/sample";
-import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
+import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptCorrection, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
 import TranscriptWaveform from "./TranscriptWaveform";
 import TranscriptParagraph from "./TranscriptParagraph";
 
@@ -71,6 +71,7 @@ export default function RoughcutWorkspace() {
   const [audioSilences, setAudioSilences] = useState<AudioSilence[]>([]);
   const [audioBreaths, setAudioBreaths] = useState<AudioBreath[]>([]);
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>(sampleWaveformPeaks);
+  const [transcriptCorrections, setTranscriptCorrections] = useState<TranscriptCorrection[]>([]);
   const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
   const [duration, setDuration] = useState(SAMPLE_DURATION);
   const [config, setConfig] = useState<CutConfig>({ ...DEFAULT_CONFIG });
@@ -144,6 +145,17 @@ export default function RoughcutWorkspace() {
     if (!videoRef.current || !videoUrl) return;
     videoRef.current.src = videoUrl;
     videoRef.current.currentTime = target;
+  };
+
+  const setTranscriptCorrectionStatus = (
+    wordIndex: number | "all",
+    status: TranscriptCorrection["status"],
+  ) => {
+    setTranscriptCorrections((current) => current.map((correction) =>
+      wordIndex === "all" || correction.word_index === wordIndex
+        ? { ...correction, status }
+        : correction,
+    ));
   };
 
   const persistCorrection = async (
@@ -228,6 +240,7 @@ export default function RoughcutWorkspace() {
     setAudioSilences(detectedSilences);
     setAudioBreaths(detectedBreaths);
     setWaveformPeaks(normalized.audio_analysis?.waveform_peaks ?? []);
+    setTranscriptCorrections(normalized.transcript_corrections);
     setSilenceThresholdDb(detectedThreshold);
     setDuration(normalized.duration);
     setCandidates(generateCandidateCuts(normalized.words, semanticHints, config, {
@@ -240,7 +253,7 @@ export default function RoughcutWorkspace() {
     }));
     setTranscriptionState("ready");
     const retakeCount = semanticHints.filter((hint) => hint.kind === "retake").length;
-    setImportNote(`${normalized.words.length} timed words · starts at “${openingWord.word.word}” · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
+    setImportNote(`${normalized.words.length} timed words · ${normalized.transcript_corrections.length} wording correction${normalized.transcript_corrections.length === 1 ? "" : "s"} · starts at “${openingWord.word.word}” · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
   };
 
   const transcribeVideo = async (file: File) => {
@@ -297,6 +310,7 @@ export default function RoughcutWorkspace() {
     setAudioSilences([]);
     setAudioBreaths([]);
     setWaveformPeaks([]);
+    setTranscriptCorrections([]);
     setCandidates([]);
     setSelectedId(undefined);
     setPlaybackTime(0);
@@ -447,6 +461,7 @@ export default function RoughcutWorkspace() {
       ranges: edl,
       validation,
       transcript: validation.reconstructedTranscript,
+      transcript_corrections: transcriptCorrections,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const anchor = document.createElement("a");
@@ -570,8 +585,10 @@ export default function RoughcutWorkspace() {
           <TranscriptParagraph
             words={words}
             candidates={candidates}
+            corrections={transcriptCorrections}
             currentTime={playbackTime}
             onSeek={seekSource}
+            onCorrectionStatus={setTranscriptCorrectionStatus}
           />
 
           <details className="settings-card">

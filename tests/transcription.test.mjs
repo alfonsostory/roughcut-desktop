@@ -62,6 +62,31 @@ test("normalizes waveform peaks for timestamp comparison", () => {
   assert.deepEqual(result.audio_analysis.waveform_peaks, [0, 0.25, 0.75, 1]);
 });
 
+test("normalizes reversible transcript corrections without changing timed words", () => {
+  const result = normalizeTranscriptPayload({
+    duration: 1,
+    words: [
+      { word: "Parcheses", start: 0.1, end: 0.5, confidence: 0.24 },
+      { word: "today", start: 0.6, end: 0.9, confidence: 0.95 },
+    ],
+    transcript_corrections: [
+      { word_index: 0, original_text: "untrusted", corrected_text: "Purchases", confidence: 1.4, reason: " Local spelling suggestion. " },
+      { word_index: 0, corrected_text: "Duplicate" },
+      { word_index: 8, corrected_text: "Outside range" },
+    ],
+  });
+
+  assert.equal(result.words[0].word, "Parcheses");
+  assert.deepEqual(result.transcript_corrections, [{
+    word_index: 0,
+    original_text: "Parcheses",
+    corrected_text: "Purchases",
+    confidence: 1,
+    reason: "Local spelling suggestion.",
+    status: "applied",
+  }]);
+});
+
 test("opening-word recognition skips noise labels and low-confidence noise tokens", () => {
   const words = [
     { word: "[Noise]", start: 0.02, end: 0.18, confidence: 0.99 },
