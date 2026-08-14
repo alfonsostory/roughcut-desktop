@@ -78,7 +78,7 @@ function createSilenceCut(words, previousIndex, config) {
     reason: `Shorten a ${pause.toFixed(2)}s pause to ${validation.resultingGap.toFixed(2)}s.`,
     original_text: `${previous.word}  [${pause.toFixed(2)}s pause]  ${next.word}`,
     resulting_text: `${previous.word}  [${validation.resultingGap.toFixed(2)}s pause]  ${next.word}`,
-    status: validation.valid ? "approved" : "needs_review",
+    status: validation.valid ? "approved" : "rejected",
     validation,
     sourceWordRange: null,
   };
@@ -150,7 +150,7 @@ function createMergedSilenceCut(words, proposal, index, config) {
     reason: `${sourceLabel} ${actionLabel}`,
     original_text: originalText,
     resulting_text: resultingText,
-    status: validation.valid ? "approved" : "needs_review",
+    status: validation.valid ? "approved" : "rejected",
     validation,
     sourceWordRange: null,
     audioVerified,
@@ -291,7 +291,7 @@ function createSemanticCut(words, hint, config) {
       : hint.reason,
     original_text: contextText(words, earlierStart, laterStart - 1),
     resulting_text: contextText(words, laterStart, hint.keptWordRange[1]),
-    status: highRisk ? "needs_review" : "approved",
+    status: validation.valid ? "approved" : "rejected",
     validation,
     sourceWordRange: [earlierStart, laterStart - 1],
     semanticHint: {
@@ -328,7 +328,7 @@ export function generateCandidateCuts(words, semanticHints = [], partialConfig =
 
 export function buildEdl(duration, candidates) {
   const approved = candidates
-    .filter((cut) => cut.status === "approved" && cut.validation.valid && (cut.risk !== "high" || cut.humanOverride))
+    .filter((cut) => cut.status === "approved" && cut.validation.valid)
     .sort((a, b) => a.start - b.start);
 
   const removals = [];
@@ -359,7 +359,7 @@ function wordIsRemoved(word, approvedCuts) {
 
 export function validateEditedResult(words, candidates, config = DEFAULT_CONFIG) {
   const approved = candidates.filter(
-    (cut) => cut.status === "approved" && cut.validation.valid && (cut.risk !== "high" || cut.humanOverride),
+    (cut) => cut.status === "approved" && cut.validation.valid,
   );
   const keptWords = words.filter((word) => !wordIsRemoved(word, approved));
   const missingUniqueWords = [];

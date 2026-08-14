@@ -10,7 +10,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `transcription/server.mjs` is a loopback-only media service that keeps the active source in a temporary project directory for transcription/rendering, then removes it when the video is replaced or the workspace closes.
 - `transcription/transcribe.py` runs MLX Whisper locally, emits word timestamps, and measures -40 dB silence regions in 10 ms frames.
 - `transcription/breath_detection.py` detects sustained breath-like broadband audio only inside gaps between timed words, so breathing can be shortened as a pause without crossing speech.
-- `app/lib/editing/retakes.mjs` identifies nearby repeated openings and likely final takes; unmatched earlier information is marked for human review.
+- `app/lib/editing/retakes.mjs` identifies nearby repeated openings and likely final takes; unmatched earlier information remains visible as high-risk evidence.
 - `transcription/render.swift` renders approved EDL ranges from the original video while automatically compensating for source audio/video edit-list offsets.
 - `transcription/analyze_silence.py` measures the completed preview and reports any remaining gaps above 200 ms back to the review UI.
 - `transcription/export-package.mjs` labels kept ranges as `001`, `002`, `003` and creates the CapCut import manifest and guide.
@@ -19,6 +19,8 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `tests/edit-engine.test.mjs` covers rule behavior independently of the UI.
 
 The semantic layer decides which word spans are likely repetitions or retakes. It supplies word-index hints only. The editing engine derives every second-level boundary from word timestamps or verified silent audio, protects 90 ms on both sides of speech, and rejects unverified boundaries inside speech.
+
+Every cut with valid deterministic boundaries is active by default, including high-risk semantic cuts. High-risk evidence remains visible in the queue, and the reviewer can choose **Keep** to restore that section. Candidates with invalid boundaries are kept automatically and never rendered.
 
 Breath evidence is treated as a pause cue, not as an independent cut boundary. The detector identifies the sound, then the editing engine maps the removal to the surrounding word timestamps and applies the same padding and transition validation as every other pause.
 
@@ -68,11 +70,12 @@ The local transcriber emits this adapter format and does not choose exact edit b
 
 The calibrated default preset shortens detected speech gaps above 200 ms toward 180 ms. After reviewing the cut queue:
 
-1. Choose **Render cut preview** to build and play the approved edit without replacing the source viewer.
+1. Choose **Render cut preview** to build and play the active edit without replacing the source viewer.
 2. Switch between **Source** and **Cut preview** to compare the result.
-3. Choose **Download video** for a single rough-cut MP4.
-4. Choose **Export segments** for a ZIP containing individually editable, zero-padded MP4 clips, `manifest.json`, and `CAPCUT_IMPORT.txt`.
-5. In CapCut Desktop, import the numbered MP4 files, sort by filename, select all, and drag them together to the main track.
+3. After a preview exists, any **Keep**, **Delete segment**, boundary adjustment, or safety-setting change automatically renders a fresh preview from the updated EDL.
+4. Choose **Download video** for a single rough-cut MP4.
+5. Choose **Export segments** for a ZIP containing individually editable, zero-padded MP4 clips, `manifest.json`, and `CAPCUT_IMPORT.txt`.
+6. In CapCut Desktop, import the numbered MP4 files, sort by filename, select all, and drag them together to the main track.
 
 CapCut currently does not support importing third-party EDL/XML project timelines, so Roughcut does not modify CapCut's private draft files. Numbered clips are the supported, recoverable handoff; their filenames and manifest preserve the intended timeline order.
 

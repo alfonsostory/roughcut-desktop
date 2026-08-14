@@ -153,7 +153,7 @@ test("semantic retake selection is mapped to exact word boundaries", () => {
   assert.equal(retake.status, "approved");
 });
 
-test("unique information makes a semantic cut high risk and excludes it from the EDL", () => {
+test("unique information stays high risk but is active by default", () => {
   const cuts = generateCandidateCuts(words, [{
     kind: "retake",
     earlierWordRange: [2, 2],
@@ -164,14 +164,33 @@ test("unique information makes a semantic cut high risk and excludes it from the
   }]);
   const risky = cuts.find((cut) => cut.type === "retake");
   assert.equal(risky.risk, "high");
-  assert.equal(risky.status, "needs_review");
-  assert.ok(buildEdl(4, cuts).every((range) => !range.candidateCutIds?.includes(risky.id)));
+  assert.equal(risky.status, "approved");
+  assert.ok(buildEdl(4, cuts).some((range) => range.candidateCutIds?.includes(risky.id)));
 });
 
 test("cut validation rejects a boundary inside a spoken word", () => {
   const result = validateCut({ start: 0.3, end: 1.3 }, words, DEFAULT_CONFIG);
   assert.equal(result.valid, false);
   assert.ok(result.issues.some((issue) => issue.includes("intersects")));
+});
+
+test("unsafe generated boundaries are kept automatically instead of awaiting approval", () => {
+  const overlappingWords = [
+    { word: "first", start: 0, end: 0.5 },
+    { word: "second", start: 0.45, end: 0.8 },
+  ];
+  const cuts = generateCandidateCuts(overlappingWords, [{
+    kind: "retake",
+    earlierWordRange: [0, 0],
+    keptWordRange: [1, 1],
+    confidence: 0.95,
+    reason: "Overlapping timestamp fixture.",
+  }]);
+  const unsafe = cuts.find((cut) => cut.type === "retake");
+
+  assert.equal(unsafe.validation.valid, false);
+  assert.equal(unsafe.status, "rejected");
+  assert.ok(buildEdl(0.8, cuts).every((range) => !range.candidateCutIds?.includes(unsafe.id)));
 });
 
 test("overlapping approved silence and retake cuts are merged instead of dropping the retake", () => {

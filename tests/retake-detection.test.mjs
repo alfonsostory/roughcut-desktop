@@ -21,7 +21,7 @@ test("detects an incomplete repeated opening and prefers the final complete take
   assert.ok(hint.confidence >= 0.94);
 });
 
-test("preserves longer unmatched information for manual review", () => {
+test("preserves longer unmatched information as visible risk evidence", () => {
   const words = timed([
     "We", "should", "start", "the", "story", "with", "customer", "revenue", "details.",
     "We", "should", "start", "the", "story", "with", "a", "short", "hook", "today.",

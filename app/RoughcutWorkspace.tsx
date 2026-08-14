@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable jsx-a11y/media-has-caption -- Phase 1 intentionally does not create caption tracks. */
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_CONFIG,
   buildEdl,
@@ -17,10 +17,11 @@ import {
   type WordTimestamp,
 } from "./lib/editing/engine.mjs";
 import { detectRetakeHints, mergeSemanticHints } from "./lib/editing/retakes.mjs";
+import { resolvePreviewRefreshAction, shouldQueueAutomaticPreviewRefresh } from "./lib/editing/preview.mjs";
 import { SAMPLE_DURATION, sampleSemanticHints, sampleWords } from "./lib/editing/sample";
 import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
 
-type Filter = "all" | "needs_review" | "approved" | "rejected";
+type Filter = "all" | "approved" | "rejected";
 type TranscriptionState = "idle" | "transcribing" | "ready" | "error";
 type RenderState = "idle" | "rendering" | "ready" | "error";
 type SegmentExportState = "idle" | "exporting" | "error";
@@ -54,6 +55,9 @@ export default function RoughcutWorkspace() {
   const transcriptInputRef = useRef<HTMLInputElement>(null);
   const sourceFileRef = useRef<File | undefined>(undefined);
   const transcriptionAbortRef = useRef<AbortController | undefined>(undefined);
+  const renderedEdlRef = useRef<string | undefined>(undefined);
+  const autoRenderAfterChangeRef = useRef(false);
+  const renderRequestIdRef = useRef(0);
   const [videoUrl, setVideoUrl] = useState<string>();
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [viewMode, setViewMode] = useState<"source" | "preview">("source");
@@ -77,7 +81,7 @@ export default function RoughcutWorkspace() {
   const [transcriptionState, setTranscriptionState] = useState<TranscriptionState>("idle");
   const [renderState, setRenderState] = useState<RenderState>("idle");
   const [segmentExportState, setSegmentExportState] = useState<SegmentExportState>("idle");
-  const [renderNote, setRenderNote] = useState("Render after reviewing cuts");
+  const [renderNote, setRenderNote] = useState("All valid cuts are active · later decisions refresh the preview automatically");
   const [hasSourceFile, setHasSourceFile] = useState(false);
 
   useEffect(() => () => {
@@ -106,25 +110,15 @@ export default function RoughcutWorkspace() {
   const edlSignature = useMemo(() => JSON.stringify(keepRanges), [keepRanges]);
   const validation = useMemo(() => validateEditedResult(words, candidates, config), [words, candidates, config]);
   const approved = candidates.filter((cut) => cut.status === "approved").length;
-  const reviewCount = candidates.filter((cut) => cut.status === "needs_review").length;
   const removedDuration = edl
     .filter((range) => range.action === "remove")
     .reduce((sum, range) => sum + range.end - range.start, 0);
 
-  const invalidatePreview = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(undefined);
-    setViewMode("source");
-    setRenderState("idle");
-    setRenderNote("Cuts changed · render a fresh preview");
+  const queueAutomaticPreviewRefresh = () => {
+    if (shouldQueueAutomaticPreviewRefresh(renderedEdlRef.current, mediaId)) {
+      autoRenderAfterChangeRef.current = true;
+    }
   };
-
-  const renderedEdlRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (previewUrl && renderedEdlRef.current !== edlSignature) invalidatePreview();
-  // Preview invalidation intentionally follows only deterministic EDL changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [edlSignature]);
 
   const previewCut = (cut: CandidateCut) => {
     setSelectedId(cut.id);
@@ -165,6 +159,8 @@ export default function RoughcutWorkspace() {
   };
 
   const setCutStatus = (cut: CandidateCut, status: CutStatus) => {
+    if (cut.status === status) return;
+    queueAutomaticPreviewRefresh();
     setCandidates((current) => current.map((item) =>
       item.id === cut.id
         ? { ...item, status, humanOverride: status === "approved" || item.humanOverride }
@@ -175,9 +171,10 @@ export default function RoughcutWorkspace() {
 
   const saveAdjustment = (cut: CandidateCut, start: number, end: number) => {
     const checked = validateCut({ start, end }, words, config);
+    queueAutomaticPreviewRefresh();
     setCandidates((current) => current.map((item) =>
       item.id === cut.id
-        ? { ...item, start, end, validation: checked, status: checked.valid ? "approved" : "needs_review", humanOverride: checked.valid }
+        ? { ...item, start, end, validation: checked, status: checked.valid ? "approved" : "rejected", humanOverride: checked.valid }
         : item,
     ));
     setAdjustingId(undefined);
@@ -187,6 +184,7 @@ export default function RoughcutWorkspace() {
   const updateConfig = (key: keyof CutConfig, value: number) => {
     const next = { ...config, [key]: value };
     const openingWord = findFirstRecognizableWord(words);
+    queueAutomaticPreviewRefresh();
     setConfig(next);
     setCandidates(generateCandidateCuts(words, hints, next, {
       duration,
@@ -208,6 +206,7 @@ export default function RoughcutWorkspace() {
     const detectedBreaths = normalized.audio_analysis?.breaths ?? [];
     const detectedThreshold = normalized.audio_analysis?.silence_threshold_db ?? -40;
     const openingWord = normalized.opening_word;
+    queueAutomaticPreviewRefresh();
     setWords(normalized.words);
     setHints(semanticHints);
     setAudioSilences(detectedSilences);
@@ -265,13 +264,16 @@ export default function RoughcutWorkspace() {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     if (mediaId) void fetch(`${MEDIA_SERVICE_URL}/media/${mediaId}`, { method: "DELETE" });
+    renderRequestIdRef.current += 1;
+    renderedEdlRef.current = undefined;
+    autoRenderAfterChangeRef.current = false;
     setVideoUrl(URL.createObjectURL(file));
     setPreviewUrl(undefined);
     setViewMode("source");
     setMediaId(undefined);
     setRenderState("idle");
     setSegmentExportState("idle");
-    setRenderNote("Render after reviewing cuts");
+    setRenderNote("All valid cuts are active · later decisions refresh the preview automatically");
     setFileName(file.name);
     setWords([]);
     setHints([]);
@@ -291,15 +293,27 @@ export default function RoughcutWorkspace() {
     if (mediaDuration && Number.isFinite(mediaDuration)) setDuration(mediaDuration);
   };
 
-  const requestRenderedPreview = async () => {
+  const requestRenderedPreview = useCallback(async (options?: {
+    ranges?: Array<{ start: number; end: number }>;
+    signature?: string;
+    automatic?: boolean;
+  }) => {
     if (!mediaId) return;
+    const ranges = options?.ranges ?? keepRanges;
+    const signature = options?.signature ?? edlSignature;
+    const requestId = renderRequestIdRef.current + 1;
+    renderRequestIdRef.current = requestId;
+    renderedEdlRef.current = signature;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(undefined);
+    setViewMode("source");
     setRenderState("rendering");
-    setRenderNote("Rendering approved cuts locally…");
+    setRenderNote(options?.automatic ? "Updating preview after cut changes…" : "Rendering active cuts locally…");
     try {
       const response = await fetch(`${MEDIA_SERVICE_URL}/render`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ media_id: mediaId, duration, keep_ranges: keepRanges }),
+        body: JSON.stringify({ media_id: mediaId, duration, keep_ranges: ranges }),
       });
       if (!response.ok) {
         const payload = await response.json() as { error?: string };
@@ -307,20 +321,53 @@ export default function RoughcutWorkspace() {
       }
       const measuredSilenceMs = Number(response.headers.get("x-roughcut-max-silence-ms"));
       const remainingLongSilences = Number(response.headers.get("x-roughcut-long-silence-count"));
-      const nextUrl = URL.createObjectURL(await response.blob());
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      const renderedVideo = await response.blob();
+      if (requestId !== renderRequestIdRef.current) return;
+      const nextUrl = URL.createObjectURL(renderedVideo);
       setPreviewUrl(nextUrl);
-      renderedEdlRef.current = edlSignature;
+      renderedEdlRef.current = signature;
       setViewMode("preview");
       setRenderState("ready");
       setRenderNote(remainingLongSilences > 0
-        ? `${keepRanges.length} segments · ${remainingLongSilences} pauses still exceed 200 ms`
-        : `${keepRanges.length} segments · preview verified · longest silence ${measuredSilenceMs} ms`);
+        ? `${ranges.length} segments · ${remainingLongSilences} pauses still exceed 200 ms`
+        : `${ranges.length} segments · preview verified · longest silence ${measuredSilenceMs} ms`);
     } catch (error) {
+      if (requestId !== renderRequestIdRef.current) return;
+      renderedEdlRef.current = undefined;
       setRenderState("error");
       setRenderNote(error instanceof Error ? error.message : "Preview render failed.");
     }
-  };
+  }, [duration, edlSignature, keepRanges, mediaId, previewUrl]);
+
+  useEffect(() => {
+    const renderedSignature = renderedEdlRef.current;
+    const action = resolvePreviewRefreshAction({
+      renderedSignature,
+      nextSignature: edlSignature,
+      automaticRequested: autoRenderAfterChangeRef.current,
+      mediaId,
+    });
+    if (action === "none") return;
+
+    if (action === "render") {
+      autoRenderAfterChangeRef.current = false;
+      renderedEdlRef.current = edlSignature;
+      void requestRenderedPreview({
+        ranges: keepRanges,
+        signature: edlSignature,
+        automatic: true,
+      });
+      return;
+    }
+
+    renderRequestIdRef.current += 1;
+    renderedEdlRef.current = undefined;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(undefined);
+    setViewMode("source");
+    setRenderState("idle");
+    setRenderNote("Cuts changed · render a fresh preview");
+  }, [edlSignature, keepRanges, mediaId, previewUrl, requestRenderedPreview]);
 
   const downloadRenderedPreview = () => {
     if (!previewUrl) return;
@@ -465,7 +512,7 @@ export default function RoughcutWorkspace() {
           <div className="timeline-card">
             <div className="timeline-head">
               <div><span className="eyebrow">Source timeline</span><strong>Speech + candidate cuts</strong></div>
-              <div className="legend"><span><i className="legend-remove" />Remove</span><span><i className="legend-review" />Review</span></div>
+              <div className="legend"><span><i className="legend-remove" />Remove</span><span><i className="legend-review" />Kept</span></div>
             </div>
             <div className="ruler"><span>0:00</span><span>0:08</span><span>0:16</span><span>0:24</span><span>0:33</span></div>
             <div className="waveform" aria-label="Audio waveform and candidate cut positions">
@@ -473,7 +520,7 @@ export default function RoughcutWorkspace() {
               {candidates.map((cut) => (
                 <button
                   key={cut.id}
-                  className={`cut-marker ${cut.status === "needs_review" ? "review" : ""} ${selectedId === cut.id ? "selected" : ""}`}
+                  className={`cut-marker ${cut.status === "rejected" ? "review" : ""} ${selectedId === cut.id ? "selected" : ""}`}
                   style={{ left: `${(cut.start / duration) * 100}%`, width: `${Math.max(1.2, ((cut.end - cut.start) / duration) * 100)}%` }}
                   onClick={() => previewCut(cut)}
                   aria-label={`Preview ${cutLabel(cut)} at ${formatTime(cut.start)}`}
@@ -485,7 +532,7 @@ export default function RoughcutWorkspace() {
               <span><i className="status-check">✓</i> Boundaries use timed words or verified silence</span>
               <span><i className="status-check">✓</i> Breaths inside word gaps count as pauses</span>
               <span><i className="status-check">✓</i> Minimum speech padding {Math.round(config.minimumSpeechSide * 1000)} ms</span>
-              <span className={reviewCount ? "needs-attention" : ""}><i>!</i> {reviewCount} need review</span>
+              <span><i className="status-check">✓</i> All valid cuts active by default</span>
             </div>
           </div>
 
@@ -526,13 +573,13 @@ export default function RoughcutWorkspace() {
 
         <aside className="review-panel">
           <div className="review-header">
-            <div><span className="eyebrow">Decision queue</span><h2>Review proposed cuts</h2><p>AI identifies content. Timings remain deterministic.</p></div>
-            <span className="queue-count">{reviewCount} open</span>
+            <div><span className="eyebrow">Decision queue</span><h2>Review proposed cuts</h2><p>Every valid cut starts active. Choose Keep to restore a section.</p></div>
+            <span className="queue-count">{approved} active</span>
           </div>
           <div className="filter-row">
-            {(["all", "needs_review", "approved", "rejected"] as Filter[]).map((item) => (
+            {(["all", "approved", "rejected"] as Filter[]).map((item) => (
               <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
-                {item === "all" ? `All ${candidates.length}` : item === "needs_review" ? `Review ${reviewCount}` : item === "approved" ? `Active ${approved}` : "Kept"}
+                {item === "all" ? `All ${candidates.length}` : item === "approved" ? `Active ${approved}` : "Kept"}
               </button>
             ))}
           </div>
@@ -554,7 +601,7 @@ export default function RoughcutWorkspace() {
           </div>
           <div className="validation-footer">
             <div className="validation-mark">✓</div>
-            <div><strong>Post-edit validation passed</strong><span>{validation.missingUniqueWords.length ? `${validation.missingUniqueWords.length} unique words need review` : "No missing unique words in active cuts"}</span></div>
+            <div><strong>{validation.valid ? "Post-edit validation passed" : "Post-edit warning detected"}</strong><span>{validation.missingUniqueWords.length ? `${validation.missingUniqueWords.length} unique words are removed by active cuts` : "No missing unique words in active cuts"}</span></div>
             <button aria-label="Show validation details">›</button>
           </div>
         </aside>
@@ -596,7 +643,7 @@ function CutCard({ cut, number, selected, adjusting, onPreview, onStatus, onAdju
         <span className="change-arrow">→</span>
         <div><span>After</span><p>{cut.resulting_text}</p></div>
       </div>
-      {cut.risk === "high" && <div className="danger-note"><span>!</span><p><strong>Manual decision required.</strong> This cut is excluded from the EDL until explicitly approved.</p></div>}
+      {cut.risk === "high" && cut.validation.valid && <div className="danger-note"><span>!</span><p><strong>High-risk cut active by default.</strong> Choose Keep if this section should remain.</p></div>}
       {!cut.validation.valid && <div className="danger-note"><span>×</span><p>{cut.validation.issues.join(" ")}</p></div>}
       {adjusting && (
         <div className="adjust-row">

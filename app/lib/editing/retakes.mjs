@@ -46,8 +46,8 @@ export function detectRetakeHints(words, { retakeWindow = 25, minimumRepeatedWor
 
       // Only a single-word divergence at the end of a completed first take is
       // treated as a likely correction (for example, a corrected name). Two
-      // or more unmatched words are preserved as unique information so the
-      // editing engine forces manual review.
+      // or more unmatched words remain attached as risk evidence so the
+      // reviewer can see what the active-by-default cut would remove.
       const correctedShortSuffix = earlierSuffix.length === 1
         && repeatedWords >= 5
         && endsSentence(words[earlierEnd].word)

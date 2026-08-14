@@ -1,4 +1,4 @@
-export type CutStatus = "approved" | "rejected" | "needs_review";
+export type CutStatus = "approved" | "rejected";
 export type CutType = "silence" | "retake" | "repetition" | "filler";
 
 export interface WordTimestamp {
