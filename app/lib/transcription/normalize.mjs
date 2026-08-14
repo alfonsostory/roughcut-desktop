@@ -137,6 +137,11 @@ export function normalizeTranscriptPayload(payload) {
               evidence: typeof item.evidence === "string" ? item.evidence : undefined,
             }))
           : [],
+        waveform_peaks: Array.isArray(payload.audio_analysis.waveform_peaks)
+          ? payload.audio_analysis.waveform_peaks
+            .filter(isFiniteNumber)
+            .map((peak) => Math.max(0, Math.min(1, peak)))
+          : [],
       }
     : undefined;
 

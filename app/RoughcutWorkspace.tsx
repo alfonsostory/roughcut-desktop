@@ -20,6 +20,7 @@ import { detectRetakeHints, mergeSemanticHints } from "./lib/editing/retakes.mjs
 import { resolvePreviewRefreshAction, shouldQueueAutomaticPreviewRefresh } from "./lib/editing/preview.mjs";
 import { SAMPLE_DURATION, sampleSemanticHints, sampleWords } from "./lib/editing/sample";
 import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
+import TranscriptWaveform from "./TranscriptWaveform";
 
 type Filter = "all" | "approved" | "rejected";
 type TranscriptionState = "idle" | "transcribing" | "ready" | "error";
@@ -48,6 +49,7 @@ const cutLabel = (cut: CandidateCut) => cut.openingTrim
     : typeLabel[cut.type];
 
 const waveform = [18, 35, 44, 29, 52, 66, 34, 59, 71, 43, 31, 55, 19, 14, 11, 13, 29, 48, 63, 38, 57, 74, 45, 26, 17, 12, 33, 62, 77, 54, 40, 67, 49, 24, 16, 12, 10, 35, 58, 69, 47, 61, 79, 52, 36, 28, 14, 12, 25, 47, 66, 73, 42, 56, 31, 19, 13, 22, 51, 68, 39, 57, 72, 44, 30, 16, 12, 37, 64, 49, 72, 55, 32, 18, 28, 61, 75, 46, 33, 56, 70, 38, 22, 15, 29, 59, 78, 54, 42, 63, 47, 26, 18, 35, 67, 52];
+const sampleWaveformPeaks = waveform.map((height) => height / 100);
 
 export default function RoughcutWorkspace() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -67,6 +69,7 @@ export default function RoughcutWorkspace() {
   const [hints, setHints] = useState<SemanticHint[]>(sampleSemanticHints);
   const [audioSilences, setAudioSilences] = useState<AudioSilence[]>([]);
   const [audioBreaths, setAudioBreaths] = useState<AudioBreath[]>([]);
+  const [waveformPeaks, setWaveformPeaks] = useState<number[]>(sampleWaveformPeaks);
   const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
   const [duration, setDuration] = useState(SAMPLE_DURATION);
   const [config, setConfig] = useState<CutConfig>({ ...DEFAULT_CONFIG });
@@ -83,6 +86,7 @@ export default function RoughcutWorkspace() {
   const [segmentExportState, setSegmentExportState] = useState<SegmentExportState>("idle");
   const [renderNote, setRenderNote] = useState("All proposed cuts are approved · timestamp-unsafe boundaries remain blocked from rendering");
   const [hasSourceFile, setHasSourceFile] = useState(false);
+  const [playbackTime, setPlaybackTime] = useState(0);
 
   useEffect(() => () => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
@@ -124,11 +128,21 @@ export default function RoughcutWorkspace() {
   const previewCut = (cut: CandidateCut) => {
     setSelectedId(cut.id);
     setViewMode("source");
+    setPlaybackTime(Math.max(0, cut.start - 1.2));
     if (!videoRef.current || !videoUrl) return;
     videoRef.current.src = videoUrl;
     videoRef.current.currentTime = Math.max(0, cut.start - 1.2);
     void videoRef.current.play();
     window.setTimeout(() => videoRef.current?.pause(), Math.max(1200, (cut.end - cut.start + 2.4) * 1000));
+  };
+
+  const seekSource = (time: number) => {
+    const target = Math.max(0, Math.min(duration, time));
+    setViewMode("source");
+    setPlaybackTime(target);
+    if (!videoRef.current || !videoUrl) return;
+    videoRef.current.src = videoUrl;
+    videoRef.current.currentTime = target;
   };
 
   const persistCorrection = async (
@@ -212,6 +226,7 @@ export default function RoughcutWorkspace() {
     setHints(semanticHints);
     setAudioSilences(detectedSilences);
     setAudioBreaths(detectedBreaths);
+    setWaveformPeaks(normalized.audio_analysis?.waveform_peaks ?? []);
     setSilenceThresholdDb(detectedThreshold);
     setDuration(normalized.duration);
     setCandidates(generateCandidateCuts(normalized.words, semanticHints, config, {
@@ -280,8 +295,10 @@ export default function RoughcutWorkspace() {
     setHints([]);
     setAudioSilences([]);
     setAudioBreaths([]);
+    setWaveformPeaks([]);
     setCandidates([]);
     setSelectedId(undefined);
+    setPlaybackTime(0);
     sourceFileRef.current = file;
     setHasSourceFile(true);
     setImportNote("Preparing local transcription…");
@@ -493,6 +510,9 @@ export default function RoughcutWorkspace() {
                   controls
                   playsInline
                   onLoadedMetadata={viewMode === "source" ? handleVideoMetadata : undefined}
+                  onTimeUpdate={(event) => {
+                    if (viewMode === "source") setPlaybackTime(event.currentTarget.currentTime);
+                  }}
                 />
               ) : (
                 <button className="empty-video" onClick={() => videoInputRef.current?.click()}>
@@ -536,6 +556,15 @@ export default function RoughcutWorkspace() {
               <span><i className="status-check">✓</i> All proposed cuts approved by default</span>
             </div>
           </div>
+
+          <TranscriptWaveform
+            words={words}
+            cuts={candidates}
+            peaks={waveformPeaks}
+            duration={duration}
+            currentTime={playbackTime}
+            onSeek={seekSource}
+          />
 
           <details className="settings-card">
             <summary><span><span className="settings-icon">⌁</span> Cut safety settings</span><span>Calibrated 180 / 200 ms preset <b>⌄</b></span></summary>

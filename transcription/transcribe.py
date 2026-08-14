@@ -43,6 +43,19 @@ def detect_audio_silences(
     return silences
 
 
+def create_waveform_peaks(samples, target_peaks=360):
+    if len(samples) == 0:
+        return []
+    edges = np.linspace(0, len(samples), min(target_peaks, len(samples)) + 1, dtype=int)
+    raw_peaks = []
+    absolute_samples = np.abs(samples)
+    for index in range(len(edges) - 1):
+        window = absolute_samples[edges[index] : edges[index + 1]]
+        raw_peaks.append(float(np.percentile(window, 95)) if len(window) else 0.0)
+    ceiling = max(float(np.percentile(raw_peaks, 98)), 1e-6)
+    return [round(min(1.0, np.sqrt(peak / ceiling)), 4) for peak in raw_peaks]
+
+
 def load_audio(path: Path):
     try:
         with wave.open(str(path), "rb") as audio_file:
@@ -119,6 +132,7 @@ def main():
             "minimum_silence": 0.2,
             "silences": detect_audio_silences(audio_samples),
             "breaths": detect_audio_breaths(audio_samples, words),
+            "waveform_peaks": create_waveform_peaks(audio_samples),
             "breath_detection": {
                 "minimum_duration": 0.12,
                 "minimum_word_gap": 0.18,

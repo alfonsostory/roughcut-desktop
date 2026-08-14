@@ -81,7 +81,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 
 .workspace { max-width: 1560px; padding: 0 30px 35px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.46fr) minmax(410px, .82fr); gap: 18px; align-items: start; }
 .viewer-column { min-width: 0; display: grid; gap: 14px; }
-.viewer-card, .timeline-card, .review-panel, .settings-card, .export-card { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow); }
+.viewer-card, .timeline-card, .transcript-waveform-card, .review-panel, .settings-card, .export-card { background: var(--panel); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow); }
 .viewer-card { overflow: hidden; }
 .viewer-toolbar { height: 60px; justify-content: space-between; padding: 0 16px 0 18px; }
 .file-meta { gap: 10px; min-width: 0; }
@@ -142,6 +142,40 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 .status-check { background: var(--mint); color: var(--forest-2); }
 .timeline-status .needs-attention { color: #9b5e25; }
 .needs-attention i { background: #fff0d8; color: #a26021; }
+
+.transcript-waveform-card { padding: 17px 18px 14px; overflow: hidden; }
+.transcript-waveform-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.transcript-waveform-head h2 { margin: 0; font-family: Georgia, serif; font-size: 18px; font-weight: 550; letter-spacing: -.025em; }
+.transcript-waveform-head p { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
+.waveform-inspector-controls { display: flex; align-items: center; gap: 8px; }
+.waveform-inspector-controls button { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 8px; background: #f8f9f6; cursor: pointer; }
+.waveform-inspector-controls label { display: grid; grid-template-columns: auto auto; gap: 2px 7px; min-width: 128px; color: var(--muted); font-size: 8px; }
+.waveform-inspector-controls strong { color: var(--ink); text-align: right; }
+.waveform-inspector-controls input { grid-column: 1 / -1; width: 100%; accent-color: var(--forest-2); }
+.waveform-inspector-ruler { display: flex; justify-content: space-between; padding: 14px 0 6px; color: #929a96; font-size: 8px; font-variant-numeric: tabular-nums; }
+.word-timestamp-track { position: relative; height: 48px; border: 1px solid #e8ebe6; border-radius: 9px 9px 0 0; overflow: hidden; background: repeating-linear-gradient(90deg, #fbfcfa 0, #fbfcfa calc(25% - 1px), #edf0eb 25%); }
+.word-timestamp-track button { position: absolute; top: 6px; bottom: 6px; z-index: 2; overflow: hidden; border: 1px solid #b9d0c7; border-radius: 6px; padding: 4px 5px; color: #285849; background: #e7f2ed; text-align: left; cursor: pointer; min-width: 4px; }
+.word-timestamp-track button:hover, .word-timestamp-track button.active { color: white; background: var(--forest-2); border-color: var(--forest-2); z-index: 4; overflow: visible; min-width: max-content; }
+.word-timestamp-track button.low-confidence { color: #8a5f25; background: #fff1d9; border-color: #ebca96; }
+.word-timestamp-track button.low-confidence.active { color: white; background: #a56d25; }
+.word-timestamp-track span, .word-timestamp-track i { display: block; white-space: nowrap; }
+.word-timestamp-track span { overflow: hidden; text-overflow: ellipsis; font-size: 9px; font-weight: 750; }
+.word-timestamp-track i { margin-top: 2px; opacity: .65; font-size: 7px; font-style: normal; font-variant-numeric: tabular-nums; }
+.audio-peak-track { position: relative; width: 100%; height: 86px; display: flex; align-items: center; gap: 1px; overflow: hidden; border: 1px solid #e8ebe6; border-top: 0; border-radius: 0 0 9px 9px; padding: 6px 0; background: #f7f8f5; cursor: crosshair; }
+.audio-peak-track > i:not(.inspector-playhead) { flex: 1; min-width: 1px; border-radius: 2px; background: #7ca595; opacity: .85; pointer-events: none; }
+.audio-peak-track > span { width: 100%; color: var(--muted); font-size: 9px; text-align: center; }
+.audio-peak-track > b { position: absolute; z-index: 2; top: 0; bottom: 0; min-width: 2px; border-inline: 1px solid rgba(190, 75, 55, .62); background: rgba(239, 118, 95, .2); pointer-events: none; }
+.audio-peak-track > b.kept { border-color: rgba(180, 125, 45, .6); background: rgba(241, 174, 69, .13); }
+.audio-peak-track > b.blocked { background: repeating-linear-gradient(135deg, rgba(239, 118, 95, .2) 0 4px, rgba(255,255,255,.45) 4px 8px); }
+.inspector-playhead { position: absolute; z-index: 6; top: 0; bottom: 0; width: 2px; background: var(--ink); pointer-events: none; transform: translateX(-1px); }
+.inspector-playhead::before { content: ""; position: absolute; top: 0; left: -3px; width: 8px; height: 5px; border-radius: 0 0 4px 4px; background: var(--lime); }
+.waveform-inspector-legend { display: flex; align-items: center; gap: 14px; padding-top: 10px; color: var(--muted); font-size: 8px; }
+.waveform-inspector-legend span { display: flex; align-items: center; gap: 5px; }
+.waveform-inspector-legend i { width: 9px; height: 9px; border-radius: 2px; }
+.waveform-inspector-legend .legend-audio { background: #7ca595; }
+.waveform-inspector-legend .legend-word { background: #dcece6; border: 1px solid #9fc0b4; }
+.waveform-inspector-legend .legend-cut { background: rgba(239, 118, 95, .35); border: 1px solid var(--coral); }
+.waveform-inspector-legend strong { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 .settings-card { overflow: hidden; box-shadow: none; }
 .settings-card summary { cursor: pointer; min-height: 52px; padding: 0 16px; justify-content: space-between; list-style: none; font-size: 11px; font-weight: 700; }
@@ -249,6 +283,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
   .decision-row button { min-width: 30%; }
   .timeline-status { gap: 9px; }
   .transcription-badge { display: none; }
+  .transcript-waveform-head { display: block; }
+  .waveform-inspector-controls { margin-top: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -12,6 +12,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `transcription/breath_detection.py` detects sustained breath-like broadband audio only inside gaps between timed words, so breathing can be shortened as a pause without crossing speech.
 - `app/lib/editing/retakes.mjs` identifies nearby repeated openings and likely final takes; unmatched earlier information remains visible as high-risk evidence.
 - `transcription/render.swift` renders approved EDL ranges from the original video while automatically compensating for source audio/video edit-list offsets.
+- The timestamp inspector displays real audio-energy peaks beneath word-level transcript blocks, follows source playback, and supports click-to-seek comparison at adjustable time scales.
 - `transcription/analyze_silence.py` measures the completed preview and reports any remaining gaps above 200 ms back to the review UI.
 - `transcription/export-package.mjs` labels kept ranges as `001`, `002`, `003` and creates the CapCut import manifest and guide.
 - `app/api/corrections/route.ts` saves human approvals, rejections, and boundary adjustments.

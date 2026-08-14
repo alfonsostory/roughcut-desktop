@@ -19,6 +19,7 @@ export interface TranscriptPayload {
       mean_db?: number;
       evidence?: string;
     }>;
+    waveform_peaks?: number[];
     breath_detection?: {
       minimum_duration: number;
       minimum_word_gap: number;

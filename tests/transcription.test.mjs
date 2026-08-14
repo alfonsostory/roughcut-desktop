@@ -46,6 +46,22 @@ test("normalizes breath evidence for the pause-cut engine", () => {
   }]);
 });
 
+test("normalizes waveform peaks for timestamp comparison", () => {
+  const result = normalizeTranscriptPayload({
+    duration: 1,
+    words: [{ word: "hello", start: 0.1, end: 0.4 }],
+    audio_analysis: {
+      frame_duration: 0.01,
+      silence_threshold_db: -40,
+      minimum_silence: 0.2,
+      silences: [],
+      waveform_peaks: [-0.2, 0.25, 0.75, 1.4, "noise"],
+    },
+  });
+
+  assert.deepEqual(result.audio_analysis.waveform_peaks, [0, 0.25, 0.75, 1]);
+});
+
 test("opening-word recognition skips noise labels and low-confidence noise tokens", () => {
   const words = [
     { word: "[Noise]", start: 0.02, end: 0.18, confidence: 0.99 },
