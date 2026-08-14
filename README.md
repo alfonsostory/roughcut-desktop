@@ -22,6 +22,8 @@ The semantic layer decides which word spans are likely repetitions or retakes. I
 
 Breath evidence is treated as a pause cue, not as an independent cut boundary. The detector identifies the sound, then the editing engine maps the removal to the surrounding word timestamps and applies the same padding and transition validation as every other pause.
 
+For the head of each video, Roughcut selects the first recognizable word using transcript confidence and non-speech-token filtering. Bracketed sound labels, music markers, punctuation-only output, and low-confidence leading noise are removed with the opening trim. If every word is uncertain, it falls back to the earliest lexical token rather than risk clipping real speech.
+
 ## Run locally
 
 Requires Node.js 22.13 or newer.

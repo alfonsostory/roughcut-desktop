@@ -98,6 +98,7 @@ function createMergedSilenceCut(words, proposal, index, config) {
       }
     : transcriptValidation;
   const position = !before ? "leading" : !after ? "trailing" : "internal";
+  const openingEvidence = proposal.evidence.find((item) => item.source === "opening_word");
   const originalPause = round(
     position === "leading"
       ? after?.start ?? proposal.end
@@ -113,7 +114,9 @@ function createMergedSilenceCut(words, proposal, index, config) {
         : validation.resultingGap,
   );
   const originalText = position === "leading"
-    ? `[${originalPause.toFixed(2)}s leading silence]  ${after?.word ?? ""}`
+    ? openingEvidence?.ignoredText
+      ? `[opening noise: ${openingEvidence.ignoredText}]  ${after?.word ?? ""}`
+      : `[${originalPause.toFixed(2)}s leading silence]  ${after?.word ?? ""}`
     : position === "trailing"
       ? `${before?.word ?? ""}  [${originalPause.toFixed(2)}s trailing silence]`
       : `${before.word}  [${originalPause.toFixed(2)}s pause]  ${after.word}`;
@@ -122,11 +125,13 @@ function createMergedSilenceCut(words, proposal, index, config) {
     : position === "trailing"
       ? `${before?.word ?? ""}  [trimmed tail]`
       : `${before.word}  [${config.targetPause.toFixed(2)}s pause]  ${after.word}`;
-  const sourceLabel = breathDetected
-    ? "Breath-like broadband audio was detected inside a timestamp-confirmed word gap."
-    : silenceVerified
-      ? `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
-      : "Word timestamps confirm the removable region.";
+  const sourceLabel = openingEvidence
+    ? `Opening scan selected “${openingEvidence.word}” as the first recognizable word and ignored ${openingEvidence.ignoredLeadingTokens} earlier noise token${openingEvidence.ignoredLeadingTokens === 1 ? "" : "s"}.`
+    : breathDetected
+      ? "Breath-like broadband audio was detected inside a timestamp-confirmed word gap."
+      : silenceVerified
+        ? `Audio energy below ${proposal.thresholdDb ?? -40} dB confirms the removable region.`
+        : "Word timestamps confirm the removable region.";
   const actionLabel = position === "leading"
     ? `Trim opening silence to ${remainingPause.toFixed(2)}s of word-safe pre-roll.`
     : `Shorten ${position} silence toward ${config.targetPause.toFixed(2)}s.`;
@@ -150,6 +155,7 @@ function createMergedSilenceCut(words, proposal, index, config) {
     sourceWordRange: null,
     audioVerified,
     breathDetected,
+    openingTrim: position === "leading",
     evidence: proposal.evidence,
   };
 }
@@ -196,14 +202,27 @@ function generateSilenceCandidates(words, config, analysis) {
     }
   }
 
-  // Opening dead air is always trimmed independently of the internal-pause
-  // threshold. The first word still keeps the configured safety pre-roll.
-  if (words[0].start > side + 0.001) {
+  // Opening noise is anchored to the first recognizable transcript word, not
+  // the first low-confidence token. The word still keeps safety pre-roll.
+  const requestedOpeningIndex = Number.isInteger(analysis.openingWordIndex)
+    ? analysis.openingWordIndex
+    : 0;
+  const openingWordIndex = Math.max(0, Math.min(words.length - 1, requestedOpeningIndex));
+  const openingWord = words[openingWordIndex];
+  if (openingWord.start > side + 0.001) {
     proposals.push({
       start: 0,
-      end: words[0].start - side,
-      sources: ["word_timestamps"],
-      evidence: [{ source: "word_timestamps", position: "leading" }],
+      end: openingWord.start - side,
+      sources: ["word_timestamps", "opening_word"],
+      evidence: [{
+        source: "opening_word",
+        position: "leading",
+        word: openingWord.word,
+        confidence: analysis.openingWordConfidence ?? openingWord.confidence ?? null,
+        openingWordIndex,
+        ignoredLeadingTokens: openingWordIndex,
+        ignoredText: words.slice(0, openingWordIndex).map((word) => word.word).join(" "),
+      }],
     });
   }
   if (duration - words.at(-1).end > config.longPauseThreshold + 0.001) {

@@ -36,6 +36,16 @@ export interface NormalizedTranscriptPayload extends TranscriptPayload {
   duration: number;
   words: WordTimestamp[];
   semantic_hints: SemanticHint[];
+  opening_word: OpeningWordResult;
+}
+
+export interface OpeningWordResult {
+  index: number;
+  word: WordTimestamp;
+  confidence: number | null;
+  ignoredLeadingTokens: number;
+  usedLowConfidenceFallback: boolean;
 }
 
 export function normalizeTranscriptPayload(payload: unknown): NormalizedTranscriptPayload;
+export function findFirstRecognizableWord(words: WordTimestamp[], minimumConfidence?: number): OpeningWordResult;

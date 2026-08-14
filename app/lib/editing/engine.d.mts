@@ -43,6 +43,7 @@ export interface CandidateCut {
   humanOverride?: boolean;
   audioVerified?: boolean;
   breathDetected?: boolean;
+  openingTrim?: boolean;
   evidence?: Array<Record<string, unknown>>;
 }
 
@@ -72,6 +73,8 @@ export function generateCandidateCuts(
     duration?: number;
     audioSilences?: AudioSilence[];
     audioBreaths?: AudioBreath[];
+    openingWordIndex?: number;
+    openingWordConfidence?: number | null;
     silenceThresholdDb?: number;
   },
 ): CandidateCut[];

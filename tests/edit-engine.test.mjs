@@ -85,6 +85,29 @@ test("opening silence is trimmed even when it is below the internal-pause thresh
   assert.match(cut.resulting_text, /0\.09s safe pre-roll/);
 });
 
+test("opening trim removes noise tokens before the first recognizable word", () => {
+  const openingWords = [
+    { word: "[Noise]", start: 0.02, end: 0.18, confidence: 0.99 },
+    { word: "uh", start: 0.25, end: 0.34, confidence: 0.18 },
+    { word: "Welcome", start: 0.82, end: 1.16, confidence: 0.94 },
+  ];
+  const cuts = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {
+    duration: 1.16,
+    audioSilences: [],
+    openingWordIndex: 2,
+    openingWordConfidence: 0.94,
+  });
+  const openingCut = cuts.find((cut) => cut.openingTrim);
+
+  assert.ok(openingCut);
+  assert.equal(openingCut.start, 0);
+  assert.equal(openingCut.end, 0.73);
+  assert.equal(openingCut.status, "approved");
+  assert.match(openingCut.reason, /selected “Welcome”/);
+  assert.match(openingCut.original_text, /\[Noise\] uh/);
+  assert.equal(validateEditedResult(openingWords, cuts).reconstructedTranscript, "Welcome");
+});
+
 test("opening trim never removes the configured word-safety pre-roll", () => {
   const openingWords = [{ word: "hello", start: 0.08, end: 0.32 }];
   const cuts = generateCandidateCuts(openingWords, [], DEFAULT_CONFIG, {

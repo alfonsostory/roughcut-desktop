@@ -2,6 +2,46 @@ const round = (value) => Math.round(value * 1000) / 1000;
 
 const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
 
+const nonSpeechOpeningToken = (value) => {
+  const token = value.trim();
+  const wrapped = (
+    (token.startsWith("[") && token.endsWith("]"))
+    || (token.startsWith("(") && token.endsWith(")"))
+    || (token.startsWith("<") && token.endsWith(">"))
+  );
+  return !/[\p{L}\p{N}]/u.test(token)
+    || (wrapped && /(music|noise|sound|applause|laughter|breath|silence|inaudible)/iu.test(token))
+    || /[♪♫]/u.test(token);
+};
+
+export function findFirstRecognizableWord(words, minimumConfidence = 0.55) {
+  const lexicalIndexes = [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    if (!word || typeof word.word !== "string" || nonSpeechOpeningToken(word.word)) continue;
+    lexicalIndexes.push(index);
+    if (!isFiniteNumber(word.confidence) || word.confidence >= minimumConfidence) {
+      return {
+        index,
+        word,
+        confidence: isFiniteNumber(word.confidence) ? word.confidence : null,
+        ignoredLeadingTokens: index,
+        usedLowConfidenceFallback: false,
+      };
+    }
+  }
+
+  const fallbackIndex = lexicalIndexes[0] ?? 0;
+  const fallbackWord = words[fallbackIndex];
+  return {
+    index: fallbackIndex,
+    word: fallbackWord,
+    confidence: isFiniteNumber(fallbackWord?.confidence) ? fallbackWord.confidence : null,
+    ignoredLeadingTokens: fallbackIndex,
+    usedLowConfidenceFallback: true,
+  };
+}
+
 export function normalizeTranscriptPayload(payload) {
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.words)) {
     throw new Error("Transcript must contain a words array.");
@@ -80,5 +120,6 @@ export function normalizeTranscriptPayload(payload) {
     words,
     semantic_hints: Array.isArray(payload.semantic_hints) ? payload.semantic_hints : [],
     audio_analysis: audioAnalysis,
+    opening_word: findFirstRecognizableWord(words),
   };
 }

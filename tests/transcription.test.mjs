@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
-import { normalizeTranscriptPayload } from "../app/lib/transcription/normalize.mjs";
+import { findFirstRecognizableWord, normalizeTranscriptPayload } from "../app/lib/transcription/normalize.mjs";
 import { createTranscriptionServer } from "../transcription/server.mjs";
 
 test("normalizes a valid word-timestamp transcript", () => {
@@ -44,6 +44,31 @@ test("normalizes breath evidence for the pause-cut engine", () => {
     mean_db: -31,
     evidence: undefined,
   }]);
+});
+
+test("opening-word recognition skips noise labels and low-confidence noise tokens", () => {
+  const words = [
+    { word: "[Noise]", start: 0.02, end: 0.18, confidence: 0.99 },
+    { word: "uh", start: 0.25, end: 0.34, confidence: 0.18 },
+    { word: "Welcome", start: 0.82, end: 1.16, confidence: 0.94 },
+  ];
+
+  const result = findFirstRecognizableWord(words);
+  assert.equal(result.index, 2);
+  assert.equal(result.word.word, "Welcome");
+  assert.equal(result.ignoredLeadingTokens, 2);
+  assert.equal(result.usedLowConfidenceFallback, false);
+});
+
+test("opening-word recognition falls back conservatively when every word is uncertain", () => {
+  const words = [
+    { word: "Maybe", start: 0.2, end: 0.5, confidence: 0.31 },
+    { word: "speech", start: 0.6, end: 0.9, confidence: 0.42 },
+  ];
+
+  const result = findFirstRecognizableWord(words);
+  assert.equal(result.index, 0);
+  assert.equal(result.usedLowConfidenceFallback, true);
 });
 
 test("rejects invalid and out-of-order timestamps", () => {

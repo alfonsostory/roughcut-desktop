@@ -18,7 +18,7 @@ import {
 } from "./lib/editing/engine.mjs";
 import { detectRetakeHints, mergeSemanticHints } from "./lib/editing/retakes.mjs";
 import { SAMPLE_DURATION, sampleSemanticHints, sampleWords } from "./lib/editing/sample";
-import { normalizeTranscriptPayload, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
+import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
 
 type Filter = "all" | "needs_review" | "approved" | "rejected";
 type TranscriptionState = "idle" | "transcribing" | "ready" | "error";
@@ -40,7 +40,11 @@ const typeLabel: Record<CandidateCut["type"], string> = {
   filler: "Filler",
 };
 
-const cutLabel = (cut: CandidateCut) => cut.breathDetected ? "Breath pause" : typeLabel[cut.type];
+const cutLabel = (cut: CandidateCut) => cut.openingTrim
+  ? "Opening trim"
+  : cut.breathDetected
+    ? "Breath pause"
+    : typeLabel[cut.type];
 
 const waveform = [18, 35, 44, 29, 52, 66, 34, 59, 71, 43, 31, 55, 19, 14, 11, 13, 29, 48, 63, 38, 57, 74, 45, 26, 17, 12, 33, 62, 77, 54, 40, 67, 49, 24, 16, 12, 10, 35, 58, 69, 47, 61, 79, 52, 36, 28, 14, 12, 25, 47, 66, 73, 42, 56, 31, 19, 13, 22, 51, 68, 39, 57, 72, 44, 30, 16, 12, 37, 64, 49, 72, 55, 32, 18, 28, 61, 75, 46, 33, 56, 70, 38, 22, 15, 29, 59, 78, 54, 42, 63, 47, 26, 18, 35, 67, 52];
 
@@ -182,11 +186,14 @@ export default function RoughcutWorkspace() {
 
   const updateConfig = (key: keyof CutConfig, value: number) => {
     const next = { ...config, [key]: value };
+    const openingWord = findFirstRecognizableWord(words);
     setConfig(next);
     setCandidates(generateCandidateCuts(words, hints, next, {
       duration,
       audioSilences,
       audioBreaths,
+      openingWordIndex: openingWord.index,
+      openingWordConfidence: openingWord.confidence,
       silenceThresholdDb,
     }));
   };
@@ -200,6 +207,7 @@ export default function RoughcutWorkspace() {
     const detectedSilences = normalized.audio_analysis?.silences ?? [];
     const detectedBreaths = normalized.audio_analysis?.breaths ?? [];
     const detectedThreshold = normalized.audio_analysis?.silence_threshold_db ?? -40;
+    const openingWord = normalized.opening_word;
     setWords(normalized.words);
     setHints(semanticHints);
     setAudioSilences(detectedSilences);
@@ -210,11 +218,13 @@ export default function RoughcutWorkspace() {
       duration: normalized.duration,
       audioSilences: detectedSilences,
       audioBreaths: detectedBreaths,
+      openingWordIndex: openingWord.index,
+      openingWordConfidence: openingWord.confidence,
       silenceThresholdDb: detectedThreshold,
     }));
     setTranscriptionState("ready");
     const retakeCount = semanticHints.filter((hint) => hint.kind === "retake").length;
-    setImportNote(`${normalized.words.length} timed words · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
+    setImportNote(`${normalized.words.length} timed words · starts at “${openingWord.word.word}” · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
   };
 
   const transcribeVideo = async (file: File) => {
@@ -572,7 +582,7 @@ function CutCard({ cut, number, selected, adjusting, onPreview, onStatus, onAdju
     <article className={`cut-card ${selected ? "selected" : ""} status-${cut.status}`}>
       <div className="cut-card-head">
         <span className="cut-number">{String(number).padStart(2, "0")}</span>
-        <div className="cut-kind"><span className={`type-icon type-${cut.type}`}>{cut.breathDetected ? "≈" : cut.type === "silence" ? "Ⅱ" : cut.type === "retake" ? "↻" : "≋"}</span><div><strong>{cutLabel(cut)}</strong><span>{formatTime(cut.start)} — {formatTime(cut.end)} · {(cut.end - cut.start).toFixed(2)}s</span></div></div>
+        <div className="cut-kind"><span className={`type-icon type-${cut.type}`}>{cut.openingTrim ? "↦" : cut.breathDetected ? "≈" : cut.type === "silence" ? "Ⅱ" : cut.type === "retake" ? "↻" : "≋"}</span><div><strong>{cutLabel(cut)}</strong><span>{formatTime(cut.start)} — {formatTime(cut.end)} · {(cut.end - cut.start).toFixed(2)}s</span></div></div>
         <button className="preview-button" onClick={onPreview}><span>▶</span> Preview</button>
       </div>
       <div className="confidence-row">
