@@ -1,4 +1,5 @@
 const round = (value) => Math.round(value * 1000) / 1000;
+const MINIMUM_UNVERIFIED_TRANSCRIPT_PAUSE = 0.7;
 
 export const DEFAULT_CONFIG = Object.freeze({
   longPauseThreshold: 0.2,
@@ -228,7 +229,19 @@ function generateSilenceCandidates(words, config, analysis) {
     const previous = words[index];
     const next = words[index + 1];
     const pause = next.start - previous.end;
-    if (pause > config.longPauseThreshold + 0.001) {
+    const overlapsMeasuredSilence = (analysis.audioSilences ?? []).some((silence) => (
+      silence.start < next.start - 0.001
+      && silence.end > previous.end + 0.001
+    ));
+
+    // Audio owns exact boundaries whenever it has evidence in the same gap.
+    // Whisper can timestamp an unvoiced word attack late, so a second cut made
+    // from that apparent word gap can otherwise clip consonants such as /f/.
+    // Without audio evidence, keep the original 700 ms conservative fallback.
+    if (
+      !overlapsMeasuredSilence
+      && pause > Math.max(config.longPauseThreshold, MINIMUM_UNVERIFIED_TRANSCRIPT_PAUSE) + 0.001
+    ) {
       proposals.push({
         start: previous.end + side,
         end: next.start - onsetSide,

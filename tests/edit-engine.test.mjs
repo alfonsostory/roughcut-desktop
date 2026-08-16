@@ -310,6 +310,51 @@ test("measured audio pause boundaries override later transcript-only boundaries"
   assert.equal(cut.validation.valid, true);
 });
 
+test("audio-owned pause boundaries prevent a second transcript cut from clipping an unvoiced onset", () => {
+  const onsetWords = [
+    { word: "not", start: 0, end: 0.05 },
+    { word: "be.", start: 0.2, end: 1.3 },
+    { word: "Forgive", start: 1.78, end: 2.3 },
+    { word: "quickly", start: 2.3, end: 2.56 },
+  ];
+  const cuts = generateCandidateCuts(onsetWords, [], DEFAULT_CONFIG, {
+    duration: 2.56,
+    audioSilences: [{ start: 0.08, end: 1.48, duration: 1.4, minimum_db: -70 }],
+  });
+  const removals = buildEdl(2.56, cuts).filter((range) => range.action === "remove");
+
+  assert.equal(removals.length, 1);
+  assert.equal(removals[0].end, 1.38);
+  assert.equal(removals.some((range) => range.end > 1.48), false);
+});
+
+test("a short transcript-only gap inside rapid speech cannot create a cut", () => {
+  const rapidWords = [
+    { word: "Comment", start: 0, end: 0.3 },
+    { word: "and", start: 0.62, end: 0.64 },
+    { word: "I'll", start: 0.64, end: 0.8 },
+  ];
+  const cuts = generateCandidateCuts(rapidWords, [], DEFAULT_CONFIG, {
+    duration: 0.8,
+    audioSilences: [],
+  });
+
+  assert.equal(cuts.some((cut) => cut.start > 0.3 && cut.end < 0.64), false);
+});
+
+test("a 700 ms transcript-only pause remains available as a conservative fallback", () => {
+  const fallbackWords = [
+    { word: "before", start: 0, end: 0.3 },
+    { word: "after", start: 1.1, end: 1.4 },
+  ];
+  const cuts = generateCandidateCuts(fallbackWords, [], DEFAULT_CONFIG, {
+    duration: 1.4,
+    audioSilences: [],
+  });
+
+  assert.ok(cuts.some((cut) => cut.start === 0.39 && cut.end === 1));
+});
+
 test("unique information stays high risk but is active by default", () => {
   const cuts = generateCandidateCuts(words, [{
     kind: "retake",
