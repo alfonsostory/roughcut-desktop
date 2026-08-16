@@ -5,6 +5,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   targetPause: 0.18,
   minimumSpeechSide: 0.09,
   speechSafetyPadding: 0.09,
+  retakeSpeechPadding: 0.1,
   minimumTransition: 0.18,
   retakeWindow: 25,
 });
@@ -288,14 +289,28 @@ function generateSilenceCandidates(words, config, analysis) {
     .map((proposal, index) => createMergedSilenceCut(words, proposal, index, config));
 }
 
-function createSemanticCut(words, hint, config) {
+function findMeasuredSpeechOnset(kept, removedEnd, audioSilences = []) {
+  return audioSilences
+    .filter((silence) => (
+      silence.end > removedEnd
+      && silence.end <= kept.start
+      && kept.start - silence.end <= 0.5
+    ))
+    .sort((left, right) => right.end - left.end)[0];
+}
+
+function createSemanticCut(words, hint, config, analysis = {}) {
   const [earlierStart] = hint.earlierWordRange;
   const [laterStart] = hint.keptWordRange;
   const previous = words[earlierStart - 1];
   const kept = words[laterStart];
-  const start = round(previous ? previous.end + config.speechSafetyPadding : 0);
-  const end = round(kept.start - config.speechSafetyPadding);
   const removedWords = words.slice(earlierStart, laterStart);
+  const removedEnd = removedWords.at(-1)?.end ?? 0;
+  const measuredOnset = findMeasuredSpeechOnset(kept, removedEnd, analysis.audioSilences);
+  const protectedOnset = measuredOnset?.end ?? kept.start;
+  const retakePadding = config.retakeSpeechPadding ?? Math.max(0.1, config.speechSafetyPadding);
+  const start = round(previous ? previous.end + retakePadding : 0);
+  const end = round(protectedOnset - retakePadding);
   const removedText = removedWords.map((word) => word.word).join(" ");
   const uniqueTerms = hint.uniqueTerms ?? [];
   const validation = validateCut({ start, end }, words, config);
@@ -309,9 +324,11 @@ function createSemanticCut(words, hint, config) {
     type,
     confidence: hint.confidence,
     risk: highRisk ? "high" : hint.confidence < 0.9 ? "medium" : "low",
-    reason: uniqueTerms.length
+    reason: `${uniqueTerms.length
       ? `${hint.reason} Unique information detected: ${uniqueTerms.join(", ")}.`
-      : hint.reason,
+      : hint.reason}${measuredOnset
+      ? ` Audio energy places the retained speech onset ${Math.round((kept.start - measuredOnset.end) * 1000)} ms before its word timestamp.`
+      : ""}`,
     original_text: contextText(words, earlierStart, laterStart - 1),
     resulting_text: contextText(words, laterStart, hint.keptWordRange[1]),
     status: "approved",
@@ -325,6 +342,14 @@ function createSemanticCut(words, hint, config) {
         .join(" "),
       uniqueTerms,
     },
+    audioVerified: Boolean(measuredOnset),
+    evidence: measuredOnset ? [{
+      source: "audio_energy",
+      purpose: "retained_speech_onset",
+      transcript_word_start: kept.start,
+      measured_speech_onset: measuredOnset.end,
+      retained_preroll: retakePadding,
+    }] : [],
   };
 }
 
@@ -343,7 +368,7 @@ export function generateCandidateCuts(words, semanticHints = [], partialConfig =
   }
 
   for (const hint of semanticHints) {
-    candidates.push(createSemanticCut(words, hint, config));
+    candidates.push(createSemanticCut(words, hint, config, analysis));
   }
 
   return candidates.sort((a, b) => a.start - b.start);

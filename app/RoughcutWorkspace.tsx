@@ -712,7 +712,7 @@ export default function RoughcutWorkspace() {
             <div className="timeline-status">
               <span><i className="status-check">✓</i> Boundaries use timed words or verified silence</span>
               <span><i className="status-check">✓</i> Breaths inside word gaps count as pauses</span>
-              <span><i className="status-check">✓</i> Minimum speech padding {Math.round(config.minimumSpeechSide * 1000)} ms</span>
+              <span><i className="status-check">✓</i> Retake onsets use audio + {Math.round(config.retakeSpeechPadding * 1000)} ms pre-roll</span>
               <span><i className="status-check">✓</i> All proposed cuts approved by default</span>
             </div>
           </div>
@@ -741,6 +741,7 @@ export default function RoughcutWorkspace() {
               <label>Maximum speech gap <strong>{Math.round(config.longPauseThreshold * 1000)} ms</strong><input type="range" min="0.2" max="0.7" step="0.01" value={config.longPauseThreshold} onChange={(event) => updateConfig("longPauseThreshold", Number(event.target.value))} /></label>
               <label>Target remaining pause <strong>{Math.round(config.targetPause * 1000)} ms</strong><input type="range" min="0.12" max="0.19" step="0.01" value={config.targetPause} onChange={(event) => updateConfig("targetPause", Number(event.target.value))} /></label>
               <label>Speech-side padding <strong>{Math.round(config.speechSafetyPadding * 1000)} ms</strong><input type="range" min="0.06" max="0.12" step="0.01" value={config.speechSafetyPadding} onChange={(event) => updateConfig("speechSafetyPadding", Number(event.target.value))} /></label>
+              <label>Retake speech pre-roll <strong>{Math.round(config.retakeSpeechPadding * 1000)} ms</strong><input type="range" min="0.1" max="0.2" step="0.01" value={config.retakeSpeechPadding} onChange={(event) => updateConfig("retakeSpeechPadding", Number(event.target.value))} /></label>
             </div>
           </details>
 

@@ -173,10 +173,37 @@ test("semantic retake selection is mapped to exact word boundaries", () => {
     reason: "Incomplete take followed by a complete take.",
   }]);
   const retake = cuts.find((cut) => cut.type === "retake");
-  assert.equal(retake.start, 1.89);
-  assert.equal(retake.end, 3.31);
+  assert.equal(retake.start, 1.9);
+  assert.equal(retake.end, 3.3);
   assert.equal(retake.validation.valid, true);
   assert.equal(retake.status, "approved");
+});
+
+test("semantic retakes use measured audio onset when the first kept word timestamp is late", () => {
+  const onsetWords = [
+    { word: "Before.", start: 0, end: 0.4 },
+    { word: "Wrong", start: 1, end: 1.4 },
+    { word: "take.", start: 1.5, end: 1.9 },
+    { word: "Correct", start: 2.5, end: 2.9 },
+    { word: "sentence.", start: 3, end: 3.5 },
+  ];
+  const cuts = generateCandidateCuts(onsetWords, [{
+    kind: "retake",
+    earlierWordRange: [1, 2],
+    keptWordRange: [3, 4],
+    confidence: 0.95,
+    reason: "Earlier take restarts.",
+  }], DEFAULT_CONFIG, {
+    duration: 3.8,
+    audioSilences: [{ start: 1.9, end: 2.24, duration: 0.34, minimum_db: -62 }],
+  });
+
+  const retake = cuts.find((cut) => cut.type === "retake");
+  assert.equal(retake.start, 0.5);
+  assert.equal(retake.end, 2.14);
+  assert.equal(retake.audioVerified, true);
+  assert.equal(retake.validation.valid, true);
+  assert.match(retake.reason, /260 ms before its word timestamp/);
 });
 
 test("unique information stays high risk but is active by default", () => {
