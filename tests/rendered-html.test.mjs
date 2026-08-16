@@ -23,6 +23,7 @@ test("server-renders the rough-cut review workspace", async () => {
   assert.match(html, /Click a word or the waveform to seek the source video/);
   assert.match(html, /Paragraph transcript/);
   assert.match(html, /After cuts/);
+  assert.match(html, /Sentence onsets use audio \+.*100.*ms pre-roll/);
   assert.doesNotMatch(html, /Add the recording script/);
   assert.match(html, /Auto correction checked this transcript/);
   assert.match(html, /Export \d+ segments/);

@@ -22,7 +22,7 @@ export interface CutConfig {
   targetPause: number;
   minimumSpeechSide: number;
   speechSafetyPadding: number;
-  retakeSpeechPadding: number;
+  speechOnsetPadding: number;
   minimumTransition: number;
   retakeWindow: number;
 }

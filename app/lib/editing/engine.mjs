@@ -5,7 +5,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   targetPause: 0.18,
   minimumSpeechSide: 0.09,
   speechSafetyPadding: 0.09,
-  retakeSpeechPadding: 0.1,
+  speechOnsetPadding: 0.1,
   minimumTransition: 0.18,
   retakeWindow: 25,
 });
@@ -96,9 +96,16 @@ function createMergedSilenceCut(words, proposal, index, config) {
     : words;
   const transcriptValidation = validateCut(proposal, validationWords, config);
   const silenceVerified = proposal.sources.has("audio_energy");
+  const containedByMeasuredSilence = proposal.evidence.some((item) => (
+    item.source === "audio_energy"
+    && typeof item.start === "number"
+    && typeof item.end === "number"
+    && proposal.start >= item.start - 0.001
+    && proposal.end <= item.end + 0.001
+  ));
   const breathDetected = proposal.sources.has("breath");
-  const audioVerified = silenceVerified || breathDetected;
-  const validation = silenceVerified
+  const audioVerified = (silenceVerified && containedByMeasuredSilence) || breathDetected;
+  const validation = silenceVerified && containedByMeasuredSilence
     ? {
         valid: proposal.end > proposal.start,
         issues: [],
@@ -179,8 +186,20 @@ function mergeSilenceProposals(proposals) {
     .filter((item) => item.end - item.start > 0.001)
     .sort((left, right) => left.start - right.start)) {
     const previous = merged.at(-1);
-    if (previous && proposal.start <= previous.end + 0.001) {
-      previous.end = Math.max(previous.end, proposal.end);
+    if (
+      previous
+      && previous.position === proposal.position
+      && proposal.start <= previous.end + 0.001
+    ) {
+      const previousHasAudio = previous.sources.has("audio_energy");
+      const proposalHasAudio = proposal.sources.includes("audio_energy");
+      if (proposalHasAudio && !previousHasAudio) {
+        previous.start = proposal.start;
+        previous.end = proposal.end;
+      } else if (proposalHasAudio === previousHasAudio) {
+        previous.start = Math.max(previous.start, proposal.start);
+        previous.end = Math.min(previous.end, proposal.end);
+      }
       for (const source of proposal.sources) previous.sources.add(source);
       previous.evidence.push(...proposal.evidence);
       if (proposal.thresholdDb !== undefined) previous.thresholdDb = proposal.thresholdDb;
@@ -200,6 +219,7 @@ function generateSilenceCandidates(words, config, analysis) {
   const proposals = [];
   const duration = analysis.duration ?? words.at(-1).end;
   const side = Math.max(config.minimumSpeechSide, config.speechSafetyPadding, config.targetPause / 2);
+  const onsetSide = Math.max(side, config.speechOnsetPadding ?? 0.1);
   const leadingAudioSilence = (analysis.audioSilences ?? [])
     .filter((silence) => silence.start <= 0.02 && silence.end - silence.start > config.longPauseThreshold + 0.001)
     .sort((left, right) => right.end - left.end)[0];
@@ -211,7 +231,8 @@ function generateSilenceCandidates(words, config, analysis) {
     if (pause > config.longPauseThreshold + 0.001) {
       proposals.push({
         start: previous.end + side,
-        end: next.start - side,
+        end: next.start - onsetSide,
+        position: "internal",
         sources: ["word_timestamps"],
         evidence: [{ source: "word_timestamps", pause: round(pause) }],
       });
@@ -228,7 +249,8 @@ function generateSilenceCandidates(words, config, analysis) {
   if (leadingAudioSilence && leadingAudioSilence.end > side + 0.001) {
     proposals.push({
       start: 0,
-      end: leadingAudioSilence.end - side,
+      end: leadingAudioSilence.end - onsetSide,
+      position: "leading",
       sources: ["audio_energy"],
       thresholdDb: analysis.silenceThresholdDb ?? -40,
       evidence: [{ source: "audio_energy", position: "leading", ...leadingAudioSilence }],
@@ -236,7 +258,8 @@ function generateSilenceCandidates(words, config, analysis) {
   } else if (openingWord.start > side + 0.001) {
     proposals.push({
       start: 0,
-      end: openingWord.start - side,
+      end: openingWord.start - onsetSide,
+      position: "leading",
       sources: ["word_timestamps", "opening_word"],
       evidence: [{
         source: "opening_word",
@@ -253,6 +276,7 @@ function generateSilenceCandidates(words, config, analysis) {
     proposals.push({
       start: words.at(-1).end + side,
       end: duration,
+      position: "trailing",
       sources: ["word_timestamps"],
       evidence: [{ source: "word_timestamps", position: "trailing" }],
     });
@@ -263,7 +287,8 @@ function generateSilenceCandidates(words, config, analysis) {
     if (silence.start <= 0.02 || silence.end >= duration - 0.06) continue;
     proposals.push({
       start: silence.start + side,
-      end: silence.end - side,
+      end: silence.end - onsetSide,
+      position: "internal",
       sources: ["audio_energy"],
       thresholdDb: analysis.silenceThresholdDb ?? -40,
       evidence: [{ source: "audio_energy", ...silence }],
@@ -279,7 +304,8 @@ function generateSilenceCandidates(words, config, analysis) {
     if (wordGap <= Math.max(config.minimumTransition, side * 2) + 0.001) continue;
     proposals.push({
       start: before.end + side,
-      end: after.start - side,
+      end: after.start - onsetSide,
+      position: "internal",
       sources: ["breath"],
       evidence: [{ source: "breath", ...breath, wordGap: round(wordGap) }],
     });
@@ -289,11 +315,10 @@ function generateSilenceCandidates(words, config, analysis) {
     .map((proposal, index) => createMergedSilenceCut(words, proposal, index, config));
 }
 
-function findMeasuredSpeechOnset(kept, removedEnd, audioSilences = []) {
+function findMeasuredSpeechOnset(kept, audioSilences = []) {
   return audioSilences
     .filter((silence) => (
-      silence.end > removedEnd
-      && silence.end <= kept.start
+      silence.end <= kept.start
       && kept.start - silence.end <= 0.5
     ))
     .sort((left, right) => right.end - left.end)[0];
@@ -305,15 +330,21 @@ function createSemanticCut(words, hint, config, analysis = {}) {
   const previous = words[earlierStart - 1];
   const kept = words[laterStart];
   const removedWords = words.slice(earlierStart, laterStart);
-  const removedEnd = removedWords.at(-1)?.end ?? 0;
-  const measuredOnset = findMeasuredSpeechOnset(kept, removedEnd, analysis.audioSilences);
+  const measuredOnset = findMeasuredSpeechOnset(kept, analysis.audioSilences);
   const protectedOnset = measuredOnset?.end ?? kept.start;
-  const retakePadding = config.retakeSpeechPadding ?? Math.max(0.1, config.speechSafetyPadding);
-  const start = round(previous ? previous.end + retakePadding : 0);
-  const end = round(protectedOnset - retakePadding);
+  const onsetPadding = config.speechOnsetPadding ?? Math.max(0.1, config.speechSafetyPadding);
+  const start = round(previous ? previous.end + onsetPadding : 0);
+  const end = round(protectedOnset - onsetPadding);
   const removedText = removedWords.map((word) => word.word).join(" ");
   const uniqueTerms = hint.uniqueTerms ?? [];
-  const validation = validateCut({ start, end }, words, config);
+  const semanticValidationWords = measuredOnset
+    ? [...words.slice(0, earlierStart), ...words.slice(laterStart)]
+    : words;
+  const validation = validateCut({ start, end }, semanticValidationWords, config);
+  if (measuredOnset && overlapsWordBoundary(start, words)) {
+    validation.valid = false;
+    validation.issues.push("Start boundary intersects a spoken word.");
+  }
   const highRisk = uniqueTerms.length > 0 || !validation.valid || hint.confidence < 0.8;
   const type = hint.kind === "repetition" ? "repetition" : "retake";
 
@@ -348,7 +379,7 @@ function createSemanticCut(words, hint, config, analysis = {}) {
       purpose: "retained_speech_onset",
       transcript_word_start: kept.start,
       measured_speech_onset: measuredOnset.end,
-      retained_preroll: retakePadding,
+      retained_preroll: onsetPadding,
     }] : [],
   };
 }
@@ -433,7 +464,7 @@ export function validateEditedResult(words, candidates, config = DEFAULT_CONFIG)
         Math.min(range.end, keptWords[index + 1].start)
           - Math.max(range.start, keptWords[index].end),
       ), 0);
-    if (rawGap - removedWithinGap > config.longPauseThreshold) {
+    if (rawGap - removedWithinGap > config.longPauseThreshold + 0.001) {
       remainingLongPauses.push({ after: keptWords[index].word, duration: round(rawGap - removedWithinGap) });
     }
   }

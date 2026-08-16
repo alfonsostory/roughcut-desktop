@@ -22,7 +22,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `db/schema.ts` stores reviewer corrections in D1/SQLite.
 - `tests/edit-engine.test.mjs` covers rule behavior independently of the UI.
 
-The semantic layer decides which word spans are likely repetitions or retakes. It supplies word-index hints only. The editing engine derives every second-level boundary from word timestamps or verified silent audio and rejects unverified boundaries inside speech. Pause cuts retain the calibrated 90 ms per side; retake joins independently retain a configurable 100 ms pre-roll before the measured audio onset so a late word timestamp cannot clip the first phoneme of the kept take.
+The semantic layer decides which word spans are likely repetitions or retakes. It supplies word-index hints only. The editing engine derives every second-level boundary from word timestamps or verified silent audio and rejects unverified boundaries inside speech. Sentence entrances retain a configurable 100 ms pre-roll before the measured audio onset, even when the word timestamp is late. When transcript and audio propose overlapping pause cuts, the measured silent-audio region is authoritative; transcript-only boundaries are used only as a fallback.
 
 Every proposed cut is approved by default, including high-risk semantic cuts and candidates carrying safety warnings. High-risk evidence remains visible in the queue, and the reviewer can choose **Keep** to restore that section. Candidates whose exact boundaries fail timestamp safety remain approved in the queue but are blocked from rendering so they cannot clip speech.
 

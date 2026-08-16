@@ -49,8 +49,8 @@ test("breathing inside a safe word gap is treated as a pause", () => {
 
   assert.ok(breathCut);
   assert.equal(breathCut.start, 0.49);
-  assert.equal(breathCut.end, 0.505);
-  assert.equal(breathCut.validation.resultingGap, 0.18);
+  assert.equal(breathCut.end, 0.495);
+  assert.equal(breathCut.validation.resultingGap, 0.19);
   assert.equal(breathCut.status, "approved");
   assert.match(breathCut.reason, /Breath-like broadband audio/);
 });
@@ -77,12 +77,12 @@ test("opening silence is trimmed even when it is below the internal-pause thresh
   });
 
   assert.equal(cut.start, 0);
-  assert.equal(cut.end, 0.07);
+  assert.equal(cut.end, 0.06);
   assert.equal(cut.type, "silence");
   assert.equal(cut.status, "approved");
   assert.equal(cut.validation.valid, true);
-  assert.match(cut.reason, /Trim opening silence to 0\.09s/);
-  assert.match(cut.resulting_text, /0\.09s safe pre-roll/);
+  assert.match(cut.reason, /Trim opening silence to 0\.10s/);
+  assert.match(cut.resulting_text, /0\.10s safe pre-roll/);
 });
 
 test("opening trim removes noise tokens before the first recognizable word", () => {
@@ -101,7 +101,7 @@ test("opening trim removes noise tokens before the first recognizable word", () 
 
   assert.ok(openingCut);
   assert.equal(openingCut.start, 0);
-  assert.equal(openingCut.end, 0.73);
+  assert.equal(openingCut.end, 0.72);
   assert.equal(openingCut.status, "approved");
   assert.match(openingCut.reason, /selected “Welcome”/);
   assert.match(openingCut.original_text, /\[Noise\] uh/);
@@ -127,10 +127,10 @@ test("measured audio activity preserves low-confidence opening speech", () => {
 
   assert.ok(openingCut);
   assert.equal(openingCut.start, 0);
-  assert.equal(openingCut.end, 0.7);
+  assert.equal(openingCut.end, 0.69);
   assert.equal(openingCut.validation.valid, true);
   assert.equal(openingCut.status, "approved");
-  assert.ok(buildEdl(3, cuts).some((range) => range.action === "remove" && range.start === 0 && range.end === 0.7));
+  assert.ok(buildEdl(3, cuts).some((range) => range.action === "remove" && range.start === 0 && range.end === 0.69));
   assert.match(validateEditedResult(openingWords, cuts).reconstructedTranscript, /^10 \.10\. Contecration purchases/);
 });
 
@@ -158,8 +158,8 @@ test("audio-energy analysis adds head, tail, and timestamp-independent silence c
       { start: 2.45, end: 3.18, duration: 0.73, minimum_db: -58 },
     ],
   });
-  assert.ok(cuts.some((cut) => cut.start === 0 && cut.end === 0.96));
-  assert.ok(cuts.some((cut) => cut.audioVerified && cut.start <= 1.64 && cut.end >= 1.91));
+  assert.ok(cuts.some((cut) => cut.start === 0 && cut.end === 0.95));
+  assert.ok(cuts.some((cut) => cut.audioVerified && cut.start === 1.64 && cut.end === 1.81));
   assert.ok(cuts.some((cut) => cut.start === 2.39 && cut.end === 3.2));
   assert.ok(cuts.every((cut) => cut.validation.valid));
 });
@@ -204,6 +204,51 @@ test("semantic retakes use measured audio onset when the first kept word timesta
   assert.equal(retake.audioVerified, true);
   assert.equal(retake.validation.valid, true);
   assert.match(retake.reason, /260 ms before its word timestamp/);
+});
+
+test("overlapping pause and retake cuts cannot extend beyond measured speech onset", () => {
+  const onsetWords = [
+    { word: "Wrong", start: 0, end: 0.4 },
+    { word: "take.", start: 0.5, end: 1.3 },
+    { word: "Correct", start: 1.5, end: 1.85 },
+    { word: "sentence.", start: 1.9, end: 2.3 },
+  ];
+  const cuts = generateCandidateCuts(onsetWords, [{
+    kind: "retake",
+    earlierWordRange: [0, 1],
+    keptWordRange: [2, 3],
+    confidence: 0.95,
+    reason: "Earlier take restarts.",
+  }], DEFAULT_CONFIG, {
+    duration: 2.4,
+    audioSilences: [{ start: 0.85, end: 1.25, duration: 0.4, minimum_db: -62 }],
+  });
+  const retake = cuts.find((cut) => cut.type === "retake");
+  const removal = buildEdl(2.4, cuts).find((range) =>
+    range.action === "remove" && range.candidateCutIds?.includes(retake.id));
+
+  assert.equal(retake.end, 1.15);
+  assert.equal(retake.audioVerified, true);
+  assert.equal(retake.validation.valid, true);
+  assert.equal(removal.end, 1.15);
+});
+
+test("measured audio pause boundaries override later transcript-only boundaries", () => {
+  const onsetWords = [
+    { word: "before", start: 0.5, end: 0.9 },
+    { word: "after", start: 1.5, end: 1.9 },
+  ];
+  const cuts = generateCandidateCuts(onsetWords, [], DEFAULT_CONFIG, {
+    duration: 2,
+    audioSilences: [{ start: 0.9, end: 1.25, duration: 0.35, minimum_db: -62 }],
+  });
+  const cut = cuts.find((candidate) => candidate.start > 0.9);
+
+  assert.ok(cut);
+  assert.equal(cut.start, 0.99);
+  assert.equal(cut.end, 1.15);
+  assert.equal(cut.audioVerified, true);
+  assert.equal(cut.validation.valid, true);
 });
 
 test("unique information stays high risk but is active by default", () => {
