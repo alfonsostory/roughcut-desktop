@@ -1,6 +1,6 @@
 # Roughcut
 
-Local-first talking-head rough-cut review workspace. It turns word-timestamped speech analysis into deterministic, reviewable cut candidates, renders the approved edit, and exports a JSON EDL or individually editable source segments.
+Local-first talking-head rough-cut review workspace. It turns word-timestamped speech analysis into deterministic, reviewable cut candidates, renders the approved edit, and exports a JSON EDL or individually editable source segments. It can run as a web workspace with a local companion or as a packaged macOS/Windows desktop app.
 
 ## Phase 1 architecture
 
@@ -8,10 +8,11 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `app/lib/editing/sample.ts` is a representative timed-word fixture plus semantic retake hints.
 - `app/RoughcutWorkspace.tsx` is the local video, timeline, review, correction, safety-setting, and export UI.
 - `transcription/server.mjs` is a loopback-only media service that keeps the active source in a temporary project directory for transcription/rendering, then removes it when the video is replaced or the workspace closes.
-- `transcription/transcribe.py` runs MLX Whisper locally, emits word timestamps, and measures -40 dB silence regions in 10 ms frames.
-- `transcription/breath_detection.py` detects sustained breath-like broadband audio only inside gaps between timed words, so breathing can be shortened as a pause without crossing speech.
+- `transcription/transcribe-cross-platform.mjs` runs Whisper locally through ONNX on macOS and Windows and emits word timestamps without uploading source media.
+- `transcription/audio-analysis.mjs` provides portable silence, waveform, render-verification, and breath analysis in 10 ms frames.
 - `app/lib/editing/retakes.mjs` identifies nearby repeated openings and likely final takes; unmatched earlier information remains visible as high-risk evidence.
-- `transcription/render.swift` renders approved EDL ranges from the original video while automatically compensating for source audio/video edit-list offsets.
+- `app/lib/transcription/script-assistance.mjs` aligns supplied script lines with spoken word sequences, including incomplete starts, inserted fillers, and small wording changes, then sends only word-index retake hints to the deterministic cut engine.
+- Bundled FFmpeg renders approved EDL ranges from the original video while automatically measuring and compensating for source audio/video edit-list offsets.
 - The timestamp inspector displays real audio-energy peaks beneath word-level transcript blocks, follows source playback, and supports click-to-seek comparison at adjustable time scales.
 - The paragraph transcript provides readable source and after-cuts views, highlights words removed by the active EDL, and keeps every visible word linked to its source timestamp.
 - Low-confidence English wording receives conservative local correction suggestions. Only replacements confirmed by high-confidence vocabulary elsewhere in the same transcript apply automatically; standalone spelling guesses wait for acceptance. Corrections affect only the reading layer, remain visibly marked, are exported alongside immutable originals, and are reversible individually or all at once.
@@ -37,14 +38,25 @@ Requires Node.js 22.13 or newer.
 
 ```bash
 pnpm install
-pnpm run transcribe:setup
 pnpm run db:migrate:local
 pnpm run dev
 ```
 
 Open `http://localhost:3000`.
 
-Importing a video now starts local word-timestamp transcription automatically. The first run downloads the configured Whisper model. Video and temporary audio stay on the device and are removed from the transcription service after each request. Use `ROUGHCUT_WHISPER_MODEL` to select another MLX Whisper model and `ROUGHCUT_WHISPER_LANGUAGE` to force a language; language detection is automatic by default.
+Import a video first. Roughcut then asks for the optional recording script; choose **Analyze with script** to use it for transcription correction and stronger retake detection, or **Continue without script**. A newly imported video always receives a fresh script prompt so an earlier project’s script cannot be reused accidentally. The first transcription run downloads the configured Whisper model (about 164 MB), then reuses the on-device cache. Video and temporary audio stay on the device and are removed from the transcription service after each request. Use `ROUGHCUT_WHISPER_MODEL` to select another Transformers.js-compatible Whisper model and `ROUGHCUT_WHISPER_LANGUAGE` to force a language.
+
+## Desktop installers
+
+The Electron desktop app opens the same review workspace and starts its private media service automatically. Source video, extracted audio, transcription, preview rendering, and segment packaging remain on the computer; saved reviewer corrections continue to use the hosted workspace.
+
+```bash
+pnpm desktop:dev
+pnpm desktop:dist --mac --arm64
+pnpm desktop:dist --win --x64
+```
+
+Installer artifacts are written to `release/`. The desktop build workflow produces separate Apple Silicon, Intel Mac, and Windows x64 downloads so every installer contains the correct native FFmpeg and ONNX runtime. Unsigned local macOS builds may require right-clicking the app and choosing **Open**; production distribution should add Apple notarization and Windows code signing.
 
 ## Manual transcript fallback
 

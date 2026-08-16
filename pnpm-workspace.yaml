@@ -1,8 +1,18 @@
 allowBuilds:
   esbuild: true
+  electron: true
+  electron-winstaller: true
+  ffmpeg-static: true
+  onnxruntime-node: true
+  protobufjs: true
   sharp: true
   workerd: true
 onlyBuiltDependencies:
+  - electron
+  - electron-winstaller
   - esbuild
+  - ffmpeg-static
+  - onnxruntime-node
+  - protobufjs
   - sharp
   - workerd

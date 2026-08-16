@@ -1,7 +1,10 @@
 {
-  "name": "site-creator-vinext-starter",
+  "name": "roughcut",
   "version": "0.1.0",
+  "description": "Word-safe talking-head rough-cut editor for macOS and Windows.",
+  "author": "Alfonso Story",
   "private": true,
+  "main": "desktop/main.mjs",
   "engines": {
     "node": ">=22.13.0"
   },
@@ -12,15 +15,21 @@
     "start": "node scripts/serve-local.mjs start",
     "start:web": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "transcribe:server": "node transcription/server.mjs",
-    "transcribe:setup": "python3 -m venv work/whisper-env && work/whisper-env/bin/pip install -r transcription/requirements.txt",
+    "transcribe:setup:legacy": "python3 -m venv work/whisper-env && work/whisper-env/bin/pip install -r transcription/requirements.txt",
     "calibrate:reference": "node scripts/calibrate-reference.mjs",
     "test": "pnpm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern work --ignore-pattern outputs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 execute site-creator-d1 --local --config=.openai/wrangler.local.jsonc --persist-to=.wrangler/state --file=drizzle/0000_curious_jasper_sitwell.sql"
+    "db:migrate:local": "wrangler d1 execute site-creator-d1 --local --config=.openai/wrangler.local.jsonc --persist-to=.wrangler/state --file=drizzle/0000_curious_jasper_sitwell.sql",
+    "desktop:dev": "electron .",
+    "desktop:pack": "electron-builder --dir",
+    "desktop:dist": "electron-builder"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "archiver": "^7.0.1",
     "drizzle-orm": "0.45.2",
+    "ffmpeg-static": "^5.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
@@ -36,6 +45,8 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
@@ -49,5 +60,43 @@
     "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
-  "type": "module"
+  "type": "module",
+  "build": {
+    "appId": "com.alfonsostory.roughcut",
+    "productName": "Roughcut",
+    "artifactName": "Roughcut-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "transcription/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/@huggingface/transformers/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
 }

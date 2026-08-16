@@ -1,25 +1,28 @@
 import { createServer } from "node:http";
-import { createWriteStream } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createWriteStream, existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { pipeline } from "node:stream/promises";
+import archiver from "archiver";
+import bundledFfmpegPath from "ffmpeg-static";
+import { analyzeSilence, readPcmWav } from "./audio-analysis.mjs";
 import { normalizeKeepRanges, segmentFileName, writePackageGuides } from "./export-package.mjs";
+import { transcribeWav } from "./transcribe-cross-platform.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const PORT = Number(process.env.ROUGHCUT_TRANSCRIBER_PORT ?? 4317);
 const preparedMedia = new Map();
-let rendererBinaryPromise;
 
 const json = (response, status, payload, origin) => {
   response.writeHead(status, {
     "access-control-allow-origin": origin,
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    "access-control-allow-private-network": "true",
   });
   response.end(JSON.stringify(payload));
 };
@@ -39,34 +42,48 @@ const binary = (response, status, payload, origin, contentType, fileName, extraH
 
 const allowedOrigin = (request) => {
   const origin = request.headers.origin ?? "";
-  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : "http://localhost:3000";
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+    || origin === "https://roughcut-phase-one-demo.alfonsostory.chatgpt.site"
+    ? origin
+    : "http://localhost:3000";
 };
 
-const commandExists = async (command) => {
-  const paths = (process.env.PATH ?? "").split(path.delimiter);
-  for (const directory of paths) {
-    try {
-      await access(path.join(directory, command));
-      return true;
-    } catch {
-      // Try the next PATH entry.
-    }
+const ffmpegExecutable = () => {
+  const configured = process.env.ROUGHCUT_FFMPEG ?? bundledFfmpegPath;
+  if (!configured) throw new Error("The bundled FFmpeg executable is unavailable on this platform.");
+  if (configured.includes("app.asar") && process.resourcesPath) {
+    const unpacked = path.join(
+      process.resourcesPath,
+      "app.asar.unpacked",
+      "node_modules",
+      "ffmpeg-static",
+      process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
+    );
+    if (existsSync(unpacked)) return unpacked;
   }
-  return false;
+  return configured.replace("app.asar", "app.asar.unpacked");
 };
 
-const run = (command, args, options = {}) => new Promise((resolve, reject) => {
+const runCapture = (command, args, options = {}) => new Promise((resolve, reject) => {
   const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
   let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout = `${stdout}${chunk}`.slice(-16000);
+  });
   child.stderr.on("data", (chunk) => {
-    stderr = `${stderr}${chunk}`.slice(-8000);
+    stderr = `${stderr}${chunk}`.slice(-16000);
   });
   child.on("error", reject);
   child.on("exit", (code) => {
-    if (code === 0) resolve();
+    if (code === 0) resolve({ stdout, stderr });
     else reject(new Error(stderr.trim() || `${command} exited with code ${code}`));
   });
 });
+
+const run = async (command, args, options = {}) => {
+  await runCapture(command, args, options);
+};
 
 const readJsonBody = async (request, maximumBytes = 2 * 1024 * 1024) => {
   const chunks = [];
@@ -96,61 +113,70 @@ async function receiveUpload(request, workingDirectory) {
   return { fileName, inputPath };
 }
 
-async function renderVideo(inputPath, audioPath, keepRanges, outputPath, workingDirectory) {
-  if (process.platform !== "darwin" || !await commandExists("swift")) {
-    throw new Error("Rendered preview currently requires the local macOS companion.");
-  }
-  rendererBinaryPromise ??= (async () => {
-    const binaryPath = path.join(ROOT, "work", "roughcut-renderer");
-    await mkdir(path.dirname(binaryPath), { recursive: true });
-    await run("swiftc", ["-O", path.join(ROOT, "transcription", "render.swift"), "-o", binaryPath], {
-      cwd: ROOT,
-      env: process.env,
-    });
-    return binaryPath;
-  })();
-  const rendererBinary = await rendererBinaryPromise;
-  const edlPath = path.join(workingDirectory, `render-${randomUUID()}.json`);
-  await writeFile(edlPath, `${JSON.stringify({ keepRanges })}\n`);
-  await run(rendererBinary, [inputPath, audioPath, edlPath, outputPath], {
-    cwd: ROOT,
-    env: process.env,
+export function buildRenderFilter(keepRanges, videoOffset = 0) {
+  if (!keepRanges.length) throw new Error("At least one source range is required for rendering.");
+  const count = keepRanges.length;
+  const videoSources = Array.from({ length: count }, (_, index) => `[vsrc${index}]`).join("");
+  const audioSources = Array.from({ length: count }, (_, index) => `[asrc${index}]`).join("");
+  const filters = count === 1
+    ? ["[0:v]setpts=PTS-STARTPTS[vsrc0]", "[1:a]asetpts=PTS-STARTPTS[asrc0]"]
+    : [
+        `[0:v]setpts=PTS-STARTPTS,split=${count}${videoSources}`,
+        `[1:a]asetpts=PTS-STARTPTS,asplit=${count}${audioSources}`,
+      ];
+  keepRanges.forEach((range, index) => {
+    filters.push(
+      `[vsrc${index}]trim=start=${(range.start + videoOffset).toFixed(6)}:end=${(range.end + videoOffset).toFixed(6)},setpts=PTS-STARTPTS[v${index}]`,
+      `[asrc${index}]atrim=start=${range.start.toFixed(6)}:end=${range.end.toFixed(6)},asetpts=PTS-STARTPTS[a${index}]`,
+    );
   });
+  const inputs = keepRanges.map((_range, index) => `[v${index}][a${index}]`).join("");
+  filters.push(`${inputs}concat=n=${count}:v=1:a=1[vout][aout]`);
+  return filters.join(";\n");
 }
 
-const pythonCommand = async () => {
-  if (process.env.ROUGHCUT_PYTHON) return process.env.ROUGHCUT_PYTHON;
-  const bundled = path.join(ROOT, "work", "whisper-env", "bin", "python");
+export async function measureSourceAvOffset(inputPath) {
   try {
-    await access(bundled);
-    return bundled;
+    const { stderr } = await runCapture(ffmpegExecutable(), [
+      "-hide_banner", "-copyts", "-i", inputPath,
+      "-filter_complex", "[0:v:0]showinfo[v];[0:a:0]ashowinfo[a]",
+      "-map", "[v]", "-map", "[a]", "-frames:v", "1", "-frames:a", "1", "-f", "null", "-",
+    ]);
+    const videoStart = Number(stderr.match(/showinfo[^\n]*pts_time:\s*(-?[\d.]+)/)?.[1]);
+    const audioStart = Number(stderr.match(/ashowinfo[^\n]*pts_time:\s*(-?[\d.]+)/)?.[1]);
+    return Number.isFinite(videoStart) && Number.isFinite(audioStart)
+      ? Math.max(0, audioStart - videoStart)
+      : 0;
   } catch {
-    return "python3";
+    return 0;
   }
-};
+}
+
+export async function renderVideo(inputPath, audioPath, keepRanges, outputPath, workingDirectory) {
+  const videoOffset = await measureSourceAvOffset(inputPath);
+  const filterPath = path.join(workingDirectory, `render-${randomUUID()}.ffmpeg`);
+  await writeFile(filterPath, buildRenderFilter(keepRanges, videoOffset));
+  await run(ffmpegExecutable(), [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-i", inputPath, "-i", audioPath,
+    "-filter_complex_script", filterPath,
+    "-map", "[vout]", "-map", "[aout]",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-shortest", outputPath,
+  ], { env: process.env });
+}
 
 export async function extractAudio(inputPath, outputPath) {
-  if (await commandExists("ffmpeg")) {
-    await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", inputPath, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", outputPath]);
-    return;
-  }
-  if (process.platform === "darwin" && await commandExists("afconvert")) {
-    await run("afconvert", [inputPath, outputPath, "-f", "WAVE", "-d", "LEI16@16000", "-c", "1"]);
-    return;
-  }
-  throw new Error("Audio extraction requires ffmpeg, or afconvert on macOS.");
+  await run(ffmpegExecutable(), [
+    "-hide_banner", "-loglevel", "error", "-y", "-i", inputPath,
+    "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", outputPath,
+  ]);
 }
 
 export async function transcribeFile(inputPath, workingDirectory) {
   const audioPath = path.join(workingDirectory, "audio.wav");
-  const outputPath = path.join(workingDirectory, "transcript.json");
   await extractAudio(inputPath, audioPath);
-  const python = await pythonCommand();
-  await run(python, [path.join(ROOT, "transcription", "transcribe.py"), audioPath, outputPath], {
-    cwd: ROOT,
-    env: process.env,
-  });
-  return JSON.parse(await readFile(outputPath, "utf8"));
+  return transcribeWav(audioPath);
 }
 
 export function createTranscriptionServer({ transcribe = transcribeFile } = {}) {
@@ -161,13 +187,14 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
         "access-control-allow-origin": origin,
         "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
         "access-control-allow-headers": "content-type, x-file-name",
+        "access-control-allow-private-network": "true",
         "access-control-max-age": "86400",
       });
       response.end();
       return;
     }
     if (request.method === "GET" && request.url === "/health") {
-      json(response, 200, { status: "ready", rendering: process.platform === "darwin" }, origin);
+      json(response, 200, { status: "ready", rendering: true, platform: process.platform }, origin);
       return;
     }
     if (request.method === "DELETE" && request.url?.startsWith("/media/")) {
@@ -196,14 +223,9 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
           const outputPath = path.join(workingDirectory, `${baseName}-preview.mp4`);
           await renderVideo(media.inputPath, media.audioPath, ranges, outputPath, workingDirectory);
           const validationAudioPath = path.join(workingDirectory, "rendered-audio.wav");
-          const validationPath = path.join(workingDirectory, "render-validation.json");
           await extractAudio(outputPath, validationAudioPath);
-          await run(await pythonCommand(), [
-            path.join(ROOT, "transcription", "analyze_silence.py"),
-            validationAudioPath,
-            validationPath,
-          ], { cwd: ROOT, env: process.env });
-          const renderValidation = JSON.parse(await readFile(validationPath, "utf8"));
+          const renderedAudio = await readPcmWav(validationAudioPath);
+          const renderValidation = analyzeSilence(renderedAudio.samples, renderedAudio.sampleRate);
           binary(
             response,
             200,
@@ -227,9 +249,15 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
           await renderVideo(media.inputPath, media.audioPath, [range], outputPath, workingDirectory);
         }
         const archivePath = path.join(workingDirectory, `${baseName}-segments.zip`);
-        await run("zip", ["-r", "-X", archivePath, path.basename(packageDirectory)], {
-          cwd: workingDirectory,
-          env: process.env,
+        await new Promise((resolve, reject) => {
+          const output = createWriteStream(archivePath);
+          const archive = archiver("zip", { zlib: { level: 9 } });
+          output.on("close", resolve);
+          output.on("error", reject);
+          archive.on("error", reject);
+          archive.pipe(output);
+          archive.directory(packageDirectory, path.basename(packageDirectory));
+          void archive.finalize();
         });
         binary(response, 200, await readFile(archivePath), origin, "application/zip", `${baseName}-segments.zip`);
         return;
@@ -273,11 +301,8 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown transcription error";
-      const setupMissing = /mlx_whisper|No module named|python3.*ENOENT/i.test(detail);
       json(response, 500, {
-        error: setupMissing
-          ? "Local transcription is not installed. Run pnpm run transcribe:setup once."
-          : detail,
+        error: detail,
       }, origin);
     } finally {
       if (!keepWorkingDirectory) await rm(workingDirectory, { recursive: true, force: true });

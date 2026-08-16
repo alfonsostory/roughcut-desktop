@@ -45,8 +45,14 @@ const scriptTokenRecords = (script) => lexicalTokens(script).map((text) => ({
 const scriptSegments = (script) => String(script ?? "")
   .split(/\n+/)
   .flatMap((line) => line.match(/[^.!?]+[.!?]?/g) ?? [])
-  .map((segment) => lexicalTokens(segment).map(normalizeToken).filter(Boolean))
-  .filter((tokens) => tokens.length >= 4 && tokens.length <= 40);
+  .flatMap((segment) => {
+    const tokens = lexicalTokens(segment).map(normalizeToken).filter(Boolean);
+    if (tokens.length <= 40) return [tokens];
+    const chunks = [];
+    for (let start = 0; start < tokens.length; start += 24) chunks.push(tokens.slice(start, start + 32));
+    return chunks;
+  })
+  .filter((tokens) => tokens.length >= 3);
 
 const preservePunctuation = (replacement, original) => {
   const trailing = String(original).match(/[.,!?;:…]+$/u)?.[0] ?? "";
@@ -120,14 +126,102 @@ export function applyTranscriptCorrections(words, corrections = []) {
     : word);
 }
 
-const occurrenceScore = (tokens, segment, start) => {
-  if (start + segment.length > tokens.length) return 0;
-  let score = 0;
-  for (let offset = 0; offset < segment.length; offset += 1) {
-    const similarity = tokenSimilarity(tokens[start + offset], segment[offset]);
-    score += similarity >= 0.86 ? similarity : 0;
+const alignOccurrence = (tokens, segment, start, endLimit = tokens.length) => {
+  const maximumEnd = Math.min(endLimit, start + segment.length + 8);
+  let transcriptIndex = start;
+  let scriptIndex = 0;
+  const matches = [];
+
+  while (transcriptIndex < maximumEnd && scriptIndex < segment.length) {
+    let best;
+    for (let transcriptSkip = 0; transcriptSkip <= 3; transcriptSkip += 1) {
+      const candidateTranscriptIndex = transcriptIndex + transcriptSkip;
+      if (candidateTranscriptIndex >= maximumEnd) break;
+      for (let scriptSkip = 0; scriptSkip <= 2; scriptSkip += 1) {
+        const candidateScriptIndex = scriptIndex + scriptSkip;
+        if (candidateScriptIndex >= segment.length) break;
+        const similarity = tokenSimilarity(
+          tokens[candidateTranscriptIndex],
+          segment[candidateScriptIndex],
+        );
+        const rank = similarity - transcriptSkip * 0.055 - scriptSkip * 0.075;
+        if (similarity < 0.68 || rank < 0.54) continue;
+        if (!best || rank > best.rank) {
+          best = {
+            transcriptIndex: candidateTranscriptIndex,
+            scriptIndex: candidateScriptIndex,
+            similarity,
+            rank,
+          };
+        }
+      }
+    }
+    if (!best) {
+      transcriptIndex += 1;
+      continue;
+    }
+    matches.push(best);
+    transcriptIndex = best.transcriptIndex + 1;
+    scriptIndex = best.scriptIndex + 1;
   }
-  return score / segment.length;
+
+  if (!matches.length) return undefined;
+  const first = matches[0];
+  const last = matches.at(-1);
+  const inferredStart = Math.max(start, first.transcriptIndex - first.scriptIndex);
+  const spanLength = last.transcriptIndex - inferredStart + 1;
+  const coverage = matches.length / segment.length;
+  const precision = matches.length / Math.max(1, spanLength);
+  const averageSimilarity = matches.reduce((sum, match) => sum + match.similarity, 0) / matches.length;
+  const prefixReach = last.scriptIndex + 1;
+  const prefixCoverage = matches.length / prefixReach;
+  const complete = (
+    matches.length >= Math.min(4, Math.ceil(segment.length * 0.68))
+    && coverage >= 0.68
+    && precision >= 0.5
+    && averageSimilarity >= 0.8
+    && first.scriptIndex <= 1
+    && last.scriptIndex >= segment.length - 2
+  );
+  const partial = (
+    !complete
+    && matches.length >= Math.min(3, segment.length - 1)
+    && prefixReach >= Math.min(3, Math.ceil(segment.length * 0.35))
+    && prefixCoverage >= 0.72
+    && precision >= 0.45
+    && averageSimilarity >= 0.8
+    && first.scriptIndex <= 1
+  );
+  return {
+    start: inferredStart,
+    end: last.transcriptIndex,
+    score: coverage * 0.55 + precision * 0.2 + averageSimilarity * 0.25,
+    complete,
+    partial,
+  };
+};
+
+const candidateStarts = (tokens, segment, start = 0, end = tokens.length) => {
+  const starts = new Set();
+  const anchorCount = Math.min(3, segment.length);
+  for (let transcriptIndex = start; transcriptIndex < end; transcriptIndex += 1) {
+    for (let scriptIndex = 0; scriptIndex < anchorCount; scriptIndex += 1) {
+      if (tokenSimilarity(tokens[transcriptIndex], segment[scriptIndex]) < 0.72) continue;
+      starts.add(Math.max(start, transcriptIndex - scriptIndex));
+    }
+  }
+  return [...starts].sort((left, right) => left - right);
+};
+
+const dedupeOccurrences = (occurrences) => {
+  const ranked = [...occurrences].sort((left, right) =>
+    right.score - left.score || left.start - right.start || left.end - right.end);
+  const accepted = [];
+  for (const occurrence of ranked) {
+    if (accepted.some((item) => occurrence.start <= item.end && occurrence.end >= item.start)) continue;
+    accepted.push(occurrence);
+  }
+  return accepted.sort((left, right) => left.start - right.start);
 };
 
 const meaningfulTerms = (words) => words
@@ -139,18 +233,26 @@ export function detectScriptRetakeHints(words, script, { retakeWindow = 25 } = {
   const proposals = [];
 
   for (const segment of scriptSegments(script)) {
-    const occurrences = [];
-    for (let start = 0; start + segment.length <= tokens.length; start += 1) {
-      const score = occurrenceScore(tokens, segment, start);
-      if (score < 0.82) continue;
-      if (occurrences.at(-1)?.end >= start) continue;
-      occurrences.push({ start, end: start + segment.length - 1, score });
-    }
+    const completeOccurrences = dedupeOccurrences(candidateStarts(tokens, segment)
+      .map((start) => alignOccurrence(tokens, segment, start))
+      .filter((occurrence) => occurrence?.complete));
 
-    for (let index = 1; index < occurrences.length; index += 1) {
-      const earlier = occurrences[index - 1];
-      const later = occurrences[index];
-      if (words[later.start].start - words[earlier.start].start > retakeWindow) continue;
+    for (const later of completeOccurrences) {
+      const earliestTime = words[later.start].start - retakeWindow;
+      let earliestWord = later.start - 1;
+      while (earliestWord > 0 && words[earliestWord].start >= earliestTime) earliestWord -= 1;
+      if (words[earliestWord]?.start < earliestTime) earliestWord += 1;
+      const earlierCandidates = candidateStarts(tokens, segment, earliestWord, later.start)
+        .map((start) => alignOccurrence(tokens, segment, start, later.start))
+        .filter((occurrence) => occurrence && (occurrence.complete || occurrence.partial));
+      const earlier = earlierCandidates
+        .filter((occurrence) => occurrence.start < later.start && occurrence.end < later.start)
+        .sort((left, right) =>
+          Number(right.complete) - Number(left.complete)
+          || right.score - left.score
+          || right.start - left.start)[0];
+      if (!earlier) continue;
+
       const keptTerms = new Set(meaningfulTerms(words.slice(later.start, later.end + 1)));
       const uniqueTerms = [...new Set(
         meaningfulTerms(words.slice(earlier.start, later.start))
@@ -160,8 +262,13 @@ export function detectScriptRetakeHints(words, script, { retakeWindow = 25 } = {
         kind: "retake",
         earlierWordRange: [earlier.start, later.start - 1],
         keptWordRange: [later.start, later.end],
-        confidence: Math.min(0.97, 0.84 + Math.min(earlier.score, later.score) * 0.13),
-        reason: "The supplied script line appears in two nearby takes; the final complete take is preferred.",
+        confidence: Math.min(
+          0.97,
+          (earlier.complete ? 0.84 : 0.8) + Math.min(earlier.score, later.score) * 0.13,
+        ),
+        reason: earlier.complete
+          ? "The supplied script line appears in two nearby takes; the final complete take is preferred."
+          : "An earlier attempt matches the opening of the supplied script line, then restarts into a later complete take.",
         uniqueTerms,
       });
     }

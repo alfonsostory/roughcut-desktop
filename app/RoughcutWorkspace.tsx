@@ -25,7 +25,7 @@ import TranscriptWaveform from "./TranscriptWaveform";
 import TranscriptParagraph from "./TranscriptParagraph";
 
 type Filter = "all" | "approved" | "rejected";
-type TranscriptionState = "idle" | "transcribing" | "ready" | "error";
+type TranscriptionState = "idle" | "awaiting_script" | "transcribing" | "ready" | "error";
 type RenderState = "idle" | "rendering" | "ready" | "error";
 type SegmentExportState = "idle" | "exporting" | "error";
 type ScriptAnalysisSummary = {
@@ -344,6 +344,8 @@ export default function RoughcutWorkspace() {
   const importVideo = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    transcriptionAbortRef.current?.abort();
+    transcriptionAbortRef.current = undefined;
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     if (mediaId) void fetch(`${MEDIA_SERVICE_URL}/media/${mediaId}`, { method: "DELETE" });
@@ -364,14 +366,23 @@ export default function RoughcutWorkspace() {
     setAudioBreaths([]);
     setWaveformPeaks([]);
     setTranscriptCorrections([]);
+    setSupportingScript("");
+    setAnalyzedScript("");
+    setScriptAnalysis(undefined);
     setCandidates([]);
     setSelectedId(undefined);
     setPlaybackTime(0);
     sourceFileRef.current = file;
     setHasSourceFile(true);
-    setImportNote("Preparing local transcription…");
-    void transcribeVideo(file, trimmedSupportingScript);
+    setTranscriptionState("awaiting_script");
+    setImportNote("Video attached · add the optional recording script or continue without one");
     event.target.value = "";
+  };
+
+  const beginVideoAnalysis = () => {
+    const file = sourceFileRef.current;
+    if (!file) return;
+    void transcribeVideo(file, trimmedSupportingScript);
   };
 
   const reanalyzeCurrentVideo = () => {
@@ -576,23 +587,23 @@ export default function RoughcutWorkspace() {
 
       <section className="workspace">
         <div className="viewer-column">
-          <section className="script-card" aria-labelledby="supporting-script-heading">
+          {hasSourceFile && <section className="script-card" aria-labelledby="supporting-script-heading">
             <div className="script-card-head">
               <div>
-                <span className="eyebrow">Optional recording context</span>
-                <h2 id="supporting-script-heading">Supporting script</h2>
-                <p>Paste the script used during recording. It improves word selection and helps identify repeated takes of the same line.</p>
+                <span className="eyebrow">Step 2 · optional recording context</span>
+                <h2 id="supporting-script-heading">Add the recording script</h2>
+                <p>The video is attached. Paste its intended lines to improve word recognition and find partial, interrupted, or repeated takes—or continue without a script.</p>
               </div>
               <span className={`script-state ${scriptChangedSinceAnalysis ? "pending" : analyzedScript ? "applied" : ""}`}>
                 {transcriptionState === "transcribing"
                   ? "Analyzing"
+                  : transcriptionState === "awaiting_script"
+                    ? "Waiting for input"
                   : scriptChangedSinceAnalysis && hasSourceFile
                     ? "Reanalysis needed"
                     : analyzedScript
                       ? "Applied"
-                      : trimmedSupportingScript
-                        ? "Ready for import"
-                        : "Optional"}
+                      : "Optional"}
               </span>
             </div>
             <label className="script-input" htmlFor="supporting-script">
@@ -613,9 +624,11 @@ export default function RoughcutWorkspace() {
                 {hasSourceFile && (
                   <button
                     className="button button-primary"
-                    disabled={transcriptionState === "transcribing" || !scriptChangedSinceAnalysis}
-                    onClick={reanalyzeCurrentVideo}
-                  >{trimmedSupportingScript ? "Apply & reanalyze" : "Reanalyze without script"}</button>
+                    disabled={transcriptionState === "transcribing" || (transcriptionState !== "awaiting_script" && !scriptChangedSinceAnalysis)}
+                    onClick={transcriptionState === "awaiting_script" ? beginVideoAnalysis : reanalyzeCurrentVideo}
+                  >{transcriptionState === "awaiting_script"
+                    ? trimmedSupportingScript ? "Analyze with script" : "Continue without script"
+                    : trimmedSupportingScript ? "Apply & reanalyze" : "Reanalyze without script"}</button>
                 )}
               </div>
             </div>
@@ -626,7 +639,7 @@ export default function RoughcutWorkspace() {
                 <span><strong>{scriptAnalysis.retakeCount}</strong> script-guided retakes</span>
               </div>
             )}
-          </section>
+          </section>}
 
           <div className="viewer-card">
             <div className="viewer-toolbar">
