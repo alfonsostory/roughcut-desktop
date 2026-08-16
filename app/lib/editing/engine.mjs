@@ -325,23 +325,48 @@ function findMeasuredSpeechOnset(kept, audioSilences = []) {
 }
 
 function createSemanticCut(words, hint, config, analysis = {}) {
-  const [earlierStart] = hint.earlierWordRange;
-  const [laterStart] = hint.keptWordRange;
-  const previous = words[earlierStart - 1];
-  const kept = words[laterStart];
-  const removedWords = words.slice(earlierStart, laterStart);
-  const measuredOnset = findMeasuredSpeechOnset(kept, analysis.audioSilences);
-  const protectedOnset = measuredOnset?.end ?? kept.start;
+  const [keptStart, keptEnd] = hint.keptWordRange;
+  const [removedStart, removedEnd] = hint.removedWordRange
+    ?? [hint.earlierWordRange[0], keptStart - 1];
+  const previous = words[removedStart - 1];
+  const next = words[removedEnd + 1];
+  const removedWords = words.slice(removedStart, removedEnd + 1);
+  const measuredOnset = next ? findMeasuredSpeechOnset(next, analysis.audioSilences) : undefined;
+  const protectedOnset = measuredOnset?.end ?? next?.start ?? analysis.duration ?? words.at(-1)?.end ?? 0;
   const onsetPadding = config.speechOnsetPadding ?? Math.max(0.1, config.speechSafetyPadding);
-  const start = round(previous ? previous.end + onsetPadding : 0);
-  const end = round(protectedOnset - onsetPadding);
+  const measuredRemovalOnset = removedStart > 0
+    ? findMeasuredSpeechOnset(words[removedStart], analysis.audioSilences)
+    : undefined;
+  const audioVerifiedStart = measuredRemovalOnset
+    && measuredRemovalOnset.end - measuredRemovalOnset.start >= onsetPadding
+    && measuredRemovalOnset.start + onsetPadding <= words[removedStart].start;
+  const start = round(previous
+    ? audioVerifiedStart
+      ? measuredRemovalOnset.start + onsetPadding
+      : previous.end + onsetPadding
+    : 0);
+  const end = round(next ? protectedOnset - onsetPadding : protectedOnset);
   const removedText = removedWords.map((word) => word.word).join(" ");
   const uniqueTerms = hint.uniqueTerms ?? [];
-  const semanticValidationWords = measuredOnset
-    ? [...words.slice(0, earlierStart), ...words.slice(laterStart)]
-    : words;
+  const semanticValidationWords = [
+    ...words.slice(0, removedStart),
+    ...words.slice(removedEnd + 1),
+  ].filter((word) => !audioVerifiedStart || (
+    word.end <= measuredRemovalOnset.start
+    || word.start >= measuredRemovalOnset.end
+  ));
   const validation = validateCut({ start, end }, semanticValidationWords, config);
-  if (measuredOnset && overlapsWordBoundary(start, words)) {
+  const firstRemovedWord = words[removedStart];
+  const lastRemovedWord = words[removedEnd];
+  if (firstRemovedWord && start > firstRemovedWord.start + 0.001) {
+    validation.valid = false;
+    validation.issues.push("Start boundary clips the removed take.");
+  }
+  if (!measuredOnset && lastRemovedWord && end < lastRemovedWord.end - 0.001) {
+    validation.valid = false;
+    validation.issues.push("End boundary clips the removed take.");
+  }
+  if (measuredOnset && !audioVerifiedStart && overlapsWordBoundary(start, words)) {
     validation.valid = false;
     validation.issues.push("Start boundary intersects a spoken word.");
   }
@@ -349,7 +374,7 @@ function createSemanticCut(words, hint, config, analysis = {}) {
   const type = hint.kind === "repetition" ? "repetition" : "retake";
 
   return {
-    id: `${type}-${earlierStart}-${laterStart}`,
+    id: `${type}-${removedStart}-${keptStart}`,
     start,
     end,
     type,
@@ -358,29 +383,38 @@ function createSemanticCut(words, hint, config, analysis = {}) {
     reason: `${uniqueTerms.length
       ? `${hint.reason} Unique information detected: ${uniqueTerms.join(", ")}.`
       : hint.reason}${measuredOnset
-      ? ` Audio energy places the retained speech onset ${Math.round((kept.start - measuredOnset.end) * 1000)} ms before its word timestamp.`
+      ? ` Audio energy places the following retained speech onset ${Math.round((next.start - measuredOnset.end) * 1000)} ms before its word timestamp.`
       : ""}`,
-    original_text: contextText(words, earlierStart, laterStart - 1),
-    resulting_text: contextText(words, laterStart, hint.keptWordRange[1]),
+    original_text: contextText(words, removedStart, removedEnd),
+    resulting_text: contextText(words, keptStart, keptEnd),
     status: "approved",
     validation,
-    sourceWordRange: [earlierStart, laterStart - 1],
+    sourceWordRange: [removedStart, removedEnd],
     semanticHint: {
       removedText,
       keptText: words
-        .slice(hint.keptWordRange[0], hint.keptWordRange[1] + 1)
+        .slice(keptStart, keptEnd + 1)
         .map((word) => word.word)
         .join(" "),
       uniqueTerms,
     },
-    audioVerified: Boolean(measuredOnset),
-    evidence: measuredOnset ? [{
-      source: "audio_energy",
-      purpose: "retained_speech_onset",
-      transcript_word_start: kept.start,
-      measured_speech_onset: measuredOnset.end,
-      retained_preroll: onsetPadding,
-    }] : [],
+    audioVerified: Boolean(measuredOnset || audioVerifiedStart),
+    evidence: [
+      ...(audioVerifiedStart ? [{
+        source: "audio_energy",
+        purpose: "removed_take_onset",
+        measured_silence_start: measuredRemovalOnset.start,
+        transcript_word_start: words[removedStart].start,
+        retained_previous_speech_padding: onsetPadding,
+      }] : []),
+      ...(measuredOnset ? [{
+        source: "audio_energy",
+        purpose: "retained_speech_onset",
+        transcript_word_start: next.start,
+        measured_speech_onset: measuredOnset.end,
+        retained_preroll: onsetPadding,
+      }] : []),
+    ],
   };
 }
 

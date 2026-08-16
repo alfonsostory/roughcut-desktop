@@ -206,6 +206,65 @@ test("semantic retakes use measured audio onset when the first kept word timesta
   assert.match(retake.reason, /260 ms before its word timestamp/);
 });
 
+test("a less complete later retake can be removed while an earlier script-matching take stays", () => {
+  const takeWords = [
+    { word: "Correct", start: 0, end: 0.3 },
+    { word: "take.", start: 0.4, end: 0.7 },
+    { word: "Wrong", start: 1.5, end: 1.8 },
+    { word: "repeat.", start: 1.9, end: 2.2 },
+    { word: "Next", start: 3, end: 3.3 },
+    { word: "line.", start: 3.4, end: 3.7 },
+  ];
+  const cuts = generateCandidateCuts(takeWords, [{
+    kind: "retake",
+    earlierWordRange: [2, 3],
+    removedWordRange: [2, 3],
+    keptWordRange: [0, 1],
+    confidence: 0.94,
+    reason: "The earlier take matches the script more completely.",
+  }], DEFAULT_CONFIG, {
+    duration: 4,
+    audioSilences: [{ start: 2.2, end: 2.75, duration: 0.55, minimum_db: -60 }],
+  });
+  const retake = cuts.find((cut) => cut.type === "retake");
+
+  assert.deepEqual(retake.sourceWordRange, [2, 3]);
+  assert.equal(retake.start, 0.8);
+  assert.equal(retake.end, 2.65);
+  assert.equal(retake.validation.valid, true);
+  assert.equal(retake.semanticHint.keptText, "Correct take.");
+});
+
+test("measured silence can override a stale previous-word end at a retake start", () => {
+  const staleWords = [
+    { word: "Pressure.", start: 0, end: 3 },
+    { word: "And", start: 3.08, end: 3.3 },
+    { word: "wrong.", start: 3.35, end: 3.8 },
+    { word: "And", start: 4.2, end: 4.4 },
+    { word: "correct.", start: 4.45, end: 4.8 },
+  ];
+  const cuts = generateCandidateCuts(staleWords, [{
+    kind: "retake",
+    earlierWordRange: [1, 2],
+    removedWordRange: [1, 2],
+    keptWordRange: [3, 4],
+    confidence: 0.94,
+    reason: "The line restarts.",
+  }], DEFAULT_CONFIG, {
+    duration: 5,
+    audioSilences: [
+      { start: 2.7, end: 2.96, duration: 0.26, minimum_db: -60 },
+      { start: 3.8, end: 4.05, duration: 0.25, minimum_db: -60 },
+    ],
+  });
+  const retake = cuts.find((cut) => cut.type === "retake");
+
+  assert.equal(retake.start, 2.8);
+  assert.equal(retake.end, 3.95);
+  assert.equal(retake.validation.valid, true);
+  assert.ok(retake.evidence.some((item) => item.purpose === "removed_take_onset"));
+});
+
 test("overlapping pause and retake cuts cannot extend beyond measured speech onset", () => {
   const onsetWords = [
     { word: "Wrong", start: 0, end: 0.4 },

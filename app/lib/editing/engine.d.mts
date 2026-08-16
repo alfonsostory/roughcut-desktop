@@ -11,6 +11,7 @@ export interface WordTimestamp {
 export interface SemanticHint {
   kind: "retake" | "repetition";
   earlierWordRange: [number, number];
+  removedWordRange?: [number, number];
   keptWordRange: [number, number];
   confidence: number;
   reason: string;

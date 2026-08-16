@@ -11,7 +11,7 @@ Local-first talking-head rough-cut review workspace. It turns word-timestamped s
 - `transcription/transcribe-cross-platform.mjs` runs Whisper locally through ONNX on macOS and Windows and emits word timestamps without uploading source media.
 - `transcription/audio-analysis.mjs` provides portable silence, waveform, render-verification, and breath analysis in 10 ms frames.
 - `app/lib/editing/retakes.mjs` identifies nearby repeated openings and likely final takes; unmatched earlier information remains visible as high-risk evidence.
-- `app/lib/transcription/script-assistance.mjs` aligns supplied script lines with spoken word sequences, including incomplete starts, inserted fillers, and small wording changes, then sends only word-index retake hints to the deterministic cut engine.
+- `app/lib/transcription/script-assistance.mjs` aligns supplied script lines with spoken word sequences, including incomplete starts, inserted fillers, small wording changes, and commonly transcribed number forms. It keeps the take that matches the supplied wording most completely (even when that is not the last take), detects weaker repeats on either side, and sends only word-index retake hints to the deterministic cut engine.
 - Bundled FFmpeg renders approved EDL ranges from the original video while automatically measuring and compensating for source audio/video edit-list offsets.
 - The timestamp inspector displays real audio-energy peaks beneath word-level transcript blocks, follows source playback, and supports click-to-seek comparison at adjustable time scales.
 - The paragraph transcript provides readable source and after-cuts views, highlights words removed by the active EDL, and keeps every visible word linked to its source timestamp.

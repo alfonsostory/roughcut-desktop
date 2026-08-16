@@ -109,6 +109,47 @@ test("detects a changed earlier wording but protects its unique terms", () => {
   assert.ok(hint.uniqueTerms.includes("content"));
 });
 
+test("keeps an earlier take when the later repeat drops a script word", () => {
+  const words = timed([
+    "Comment", "BIBLE", "and", "I'll", "send", "you", "the", "link.",
+    "Comment", "and", "I'll", "send", "you", "the", "link.",
+  ]);
+  const [hint] = detectScriptRetakeHints(words, "Comment BIBLE and I'll send you the link.");
+
+  assert.deepEqual(hint.removedWordRange, [8, 14]);
+  assert.deepEqual(hint.keptWordRange, [0, 7]);
+  assert.deepEqual(hint.uniqueTerms, []);
+  assert.match(hint.reason, /later repeat is less complete/i);
+});
+
+test("finds repeated takes when the transcript mishears the line ending", () => {
+  const words = timed([
+    "Show", "up", "for", "the", "people", "everyone", "else's", "north.", "Bro,", "what?",
+    "Show", "up", "for", "the", "people", "everyone", "else's", "north.",
+    "Show", "for", "the", "people", "everyone", "else's", "north.",
+  ]);
+  const hints = detectScriptRetakeHints(words, "Show up for the people everyone else ignores.");
+
+  assert.equal(hints.length, 2);
+  assert.deepEqual(hints.map((hint) => hint.removedWordRange), [[0, 9], [18, 24]]);
+  assert.ok(hints.every((hint) => hint.keptWordRange[0] === 10));
+});
+
+test("a distinctive two-word script opening can identify an incomplete restart", () => {
+  const words = timed([
+    "And", "finally,", "I", "want", "to", "do", "that.", "You're", "actually", "as", "close", "to", "the", "new", "words.",
+    "And", "finally,", "your", "actions", "be", "closer", "than", "your", "words.",
+  ]);
+  const [hint] = detectScriptRetakeHints(
+    words,
+    "And finally, let your actions speak louder than your words.",
+  );
+
+  assert.deepEqual(hint.removedWordRange, [0, 14]);
+  assert.deepEqual(hint.keptWordRange, [15, 23]);
+  assert.match(hint.reason, /earlier attempt/i);
+});
+
 test("does not create a retake from a single complete script occurrence", () => {
   const words = timed(["Today", "we", "help", "creators", "publish", "faster."]);
   assert.deepEqual(detectScriptRetakeHints(words, "We help creators publish faster."), []);
