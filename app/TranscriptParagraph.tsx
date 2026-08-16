@@ -68,7 +68,7 @@ export default function TranscriptParagraph({
             <span className="autocorrection-mark">Aa</span>
             <div>
               <strong>{appliedCorrections ? "Showing automatically corrected wording" : "Showing the original transcript"}</strong>
-              <p>{corrections.length} low-confidence suggestion{corrections.length === 1 ? "" : "s"} found; only transcript-confirmed matches apply automatically. Originals and timestamps are preserved.</p>
+              <p>{corrections.length} context-supported wording suggestion{corrections.length === 1 ? "" : "s"} found; audio timestamps and original words remain available.</p>
             </div>
             <button onClick={() => onCorrectionStatus("all", appliedCorrections ? "reverted" : "applied")}>
               {appliedCorrections ? "Use original transcript" : "Show corrections"}

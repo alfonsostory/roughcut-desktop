@@ -20,6 +20,7 @@ import { detectRetakeHints, mergeSemanticHints } from "./lib/editing/retakes.mjs
 import { resolvePreviewRefreshAction, shouldQueueAutomaticPreviewRefresh } from "./lib/editing/preview.mjs";
 import { SAMPLE_DURATION, sampleSemanticHints, sampleWords } from "./lib/editing/sample";
 import { findFirstRecognizableWord, normalizeTranscriptPayload, type TranscriptCorrection, type TranscriptPayload } from "./lib/transcription/normalize.mjs";
+import { analyzeSupportingScript, applyTranscriptCorrections } from "./lib/transcription/script-assistance.mjs";
 import TranscriptWaveform from "./TranscriptWaveform";
 import TranscriptParagraph from "./TranscriptParagraph";
 
@@ -27,6 +28,12 @@ type Filter = "all" | "approved" | "rejected";
 type TranscriptionState = "idle" | "transcribing" | "ready" | "error";
 type RenderState = "idle" | "rendering" | "ready" | "error";
 type SegmentExportState = "idle" | "exporting" | "error";
+type ScriptAnalysisSummary = {
+  scriptWordCount: number;
+  matchedWordCount: number;
+  correctionCount: number;
+  retakeCount: number;
+};
 
 const MEDIA_SERVICE_URL = "http://127.0.0.1:4317";
 
@@ -72,6 +79,9 @@ export default function RoughcutWorkspace() {
   const [audioBreaths, setAudioBreaths] = useState<AudioBreath[]>([]);
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>(sampleWaveformPeaks);
   const [transcriptCorrections, setTranscriptCorrections] = useState<TranscriptCorrection[]>([]);
+  const [supportingScript, setSupportingScript] = useState("");
+  const [analyzedScript, setAnalyzedScript] = useState("");
+  const [scriptAnalysis, setScriptAnalysis] = useState<ScriptAnalysisSummary>();
   const [silenceThresholdDb, setSilenceThresholdDb] = useState(-40);
   const [duration, setDuration] = useState(SAMPLE_DURATION);
   const [config, setConfig] = useState<CutConfig>({ ...DEFAULT_CONFIG });
@@ -108,18 +118,30 @@ export default function RoughcutWorkspace() {
     () => candidates.filter((cut) => filter === "all" || cut.status === filter),
     [candidates, filter],
   );
+  const effectiveWords = useMemo(
+    () => applyTranscriptCorrections(words, transcriptCorrections),
+    [transcriptCorrections, words],
+  );
   const edl = useMemo(() => buildEdl(duration, candidates), [duration, candidates]);
   const keepRanges = useMemo(
     () => edl.filter((range) => range.action === "keep").map(({ start, end }) => ({ start, end })),
     [edl],
   );
   const edlSignature = useMemo(() => JSON.stringify(keepRanges), [keepRanges]);
-  const validation = useMemo(() => validateEditedResult(words, candidates, config), [words, candidates, config]);
+  const validation = useMemo(
+    () => validateEditedResult(effectiveWords, candidates, config),
+    [effectiveWords, candidates, config],
+  );
   const approved = candidates.filter((cut) => cut.status === "approved").length;
   const blocked = candidates.filter((cut) => cut.status === "approved" && !cut.validation.valid).length;
   const removedDuration = edl
     .filter((range) => range.action === "remove")
     .reduce((sum, range) => sum + range.end - range.start, 0);
+  const trimmedSupportingScript = supportingScript.trim();
+  const scriptChangedSinceAnalysis = trimmedSupportingScript !== analyzedScript;
+  const supportingScriptWordCount = trimmedSupportingScript
+    ? trimmedSupportingScript.split(/\s+/).filter(Boolean).length
+    : 0;
 
   const queueAutomaticPreviewRefresh = () => {
     if (shouldQueueAutomaticPreviewRefresh(renderedEdlRef.current, mediaId)) {
@@ -198,7 +220,7 @@ export default function RoughcutWorkspace() {
   };
 
   const saveAdjustment = (cut: CandidateCut, start: number, end: number) => {
-    const checked = validateCut({ start, end }, words, config);
+    const checked = validateCut({ start, end }, effectiveWords, config);
     queueAutomaticPreviewRefresh();
     setCandidates((current) => current.map((item) =>
       item.id === cut.id
@@ -211,10 +233,10 @@ export default function RoughcutWorkspace() {
 
   const updateConfig = (key: keyof CutConfig, value: number) => {
     const next = { ...config, [key]: value };
-    const openingWord = findFirstRecognizableWord(words);
+    const openingWord = findFirstRecognizableWord(effectiveWords);
     queueAutomaticPreviewRefresh();
     setConfig(next);
-    setCandidates(generateCandidateCuts(words, hints, next, {
+    setCandidates(generateCandidateCuts(effectiveWords, hints, next, {
       duration,
       audioSilences,
       audioBreaths,
@@ -224,26 +246,51 @@ export default function RoughcutWorkspace() {
     }));
   };
 
-  const applyTranscript = (payload: TranscriptPayload) => {
+  const applyTranscript = (payload: TranscriptPayload, script = "") => {
     const normalized = normalizeTranscriptPayload(payload);
+    const trimmedScript = script.trim();
+    const scriptResult = analyzeSupportingScript(normalized.words, trimmedScript, {
+      retakeWindow: config.retakeWindow,
+    });
+    const correctionsByIndex = new Map(normalized.transcript_corrections.map((correction) => [
+      correction.word_index,
+      correction,
+    ]));
+    for (const correction of scriptResult.corrections) {
+      correctionsByIndex.set(correction.word_index, correction);
+    }
+    const combinedCorrections = [...correctionsByIndex.values()].sort((left, right) =>
+      left.word_index - right.word_index);
+    const correctedWords = applyTranscriptCorrections(normalized.words, combinedCorrections);
+    const detectedRetakes = detectRetakeHints(correctedWords, { retakeWindow: config.retakeWindow });
     const semanticHints = mergeSemanticHints(
       normalized.semantic_hints,
-      detectRetakeHints(normalized.words, { retakeWindow: config.retakeWindow }),
+      mergeSemanticHints(detectedRetakes, scriptResult.semanticHints),
     );
     const detectedSilences = normalized.audio_analysis?.silences ?? [];
     const detectedBreaths = normalized.audio_analysis?.breaths ?? [];
     const detectedThreshold = normalized.audio_analysis?.silence_threshold_db ?? -40;
-    const openingWord = normalized.opening_word;
+    const openingWord = {
+      ...normalized.opening_word,
+      word: correctedWords[normalized.opening_word.index],
+    };
     queueAutomaticPreviewRefresh();
     setWords(normalized.words);
     setHints(semanticHints);
     setAudioSilences(detectedSilences);
     setAudioBreaths(detectedBreaths);
     setWaveformPeaks(normalized.audio_analysis?.waveform_peaks ?? []);
-    setTranscriptCorrections(normalized.transcript_corrections);
+    setTranscriptCorrections(combinedCorrections);
+    setAnalyzedScript(trimmedScript);
+    setScriptAnalysis(trimmedScript ? {
+      scriptWordCount: scriptResult.scriptWordCount,
+      matchedWordCount: scriptResult.matchedWordCount,
+      correctionCount: scriptResult.corrections.length,
+      retakeCount: scriptResult.semanticHints.length,
+    } : undefined);
     setSilenceThresholdDb(detectedThreshold);
     setDuration(normalized.duration);
-    setCandidates(generateCandidateCuts(normalized.words, semanticHints, config, {
+    setCandidates(generateCandidateCuts(correctedWords, semanticHints, config, {
       duration: normalized.duration,
       audioSilences: detectedSilences,
       audioBreaths: detectedBreaths,
@@ -253,15 +300,21 @@ export default function RoughcutWorkspace() {
     }));
     setTranscriptionState("ready");
     const retakeCount = semanticHints.filter((hint) => hint.kind === "retake").length;
-    setImportNote(`${normalized.words.length} timed words · ${normalized.transcript_corrections.length} wording correction${normalized.transcript_corrections.length === 1 ? "" : "s"} · starts at “${openingWord.word.word}” · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
+    const scriptNote = trimmedScript
+      ? ` · script matched ${scriptResult.matchedWordCount}/${normalized.words.length} spoken words`
+      : "";
+    setImportNote(`${normalized.words.length} timed words · ${combinedCorrections.length} wording correction${combinedCorrections.length === 1 ? "" : "s"}${scriptNote} · starts at “${openingWord.word.word}” · ${detectedSilences.length} silences · ${detectedBreaths.length} breaths · ${retakeCount} likely retake${retakeCount === 1 ? "" : "s"}`);
   };
 
-  const transcribeVideo = async (file: File) => {
+  const transcribeVideo = async (file: File, script = supportingScript) => {
     transcriptionAbortRef.current?.abort();
     const controller = new AbortController();
     transcriptionAbortRef.current = controller;
     setTranscriptionState("transcribing");
-    setImportNote("Transcribing locally… first run may take a minute");
+    const trimmedScript = script.trim();
+    setImportNote(trimmedScript
+      ? "Transcribing locally before script comparison…"
+      : "Transcribing locally… first run may take a minute");
     try {
       const response = await fetch(`${MEDIA_SERVICE_URL}/prepare`, {
         method: "POST",
@@ -274,10 +327,10 @@ export default function RoughcutWorkspace() {
       });
       const payload = await response.json() as TranscriptPayload & { error?: string; media_id?: string };
       if (!response.ok) throw new Error(payload.error || "Local transcription failed.");
-      if (sourceFileRef.current !== file) return;
+      if (sourceFileRef.current !== file || transcriptionAbortRef.current !== controller) return;
       if (!payload.media_id) throw new Error("Local media preparation did not return a project ID.");
       setMediaId(payload.media_id);
-      applyTranscript(payload);
+      applyTranscript(payload, trimmedScript);
     } catch (error) {
       if (controller.signal.aborted) return;
       setTranscriptionState("error");
@@ -317,8 +370,26 @@ export default function RoughcutWorkspace() {
     sourceFileRef.current = file;
     setHasSourceFile(true);
     setImportNote("Preparing local transcription…");
-    void transcribeVideo(file);
+    void transcribeVideo(file, trimmedSupportingScript);
     event.target.value = "";
+  };
+
+  const reanalyzeCurrentVideo = () => {
+    const file = sourceFileRef.current;
+    if (!file) return;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (mediaId) void fetch(`${MEDIA_SERVICE_URL}/media/${mediaId}`, { method: "DELETE" });
+    renderRequestIdRef.current += 1;
+    renderedEdlRef.current = undefined;
+    autoRenderAfterChangeRef.current = false;
+    setPreviewUrl(undefined);
+    setViewMode("source");
+    setMediaId(undefined);
+    setRenderState("idle");
+    setRenderNote("All proposed cuts are approved · timestamp-unsafe boundaries remain blocked from rendering");
+    setSelectedId(undefined);
+    setPlaybackTime(0);
+    void transcribeVideo(file, trimmedSupportingScript);
   };
 
   const handleVideoMetadata = () => {
@@ -443,7 +514,7 @@ export default function RoughcutWorkspace() {
     if (!file) return;
     try {
       transcriptionAbortRef.current?.abort();
-      applyTranscript(JSON.parse(await file.text()) as TranscriptPayload);
+      applyTranscript(JSON.parse(await file.text()) as TranscriptPayload, trimmedSupportingScript);
     } catch {
       setTranscriptionState("error");
       setImportNote("Transcript JSON could not be read");
@@ -462,6 +533,14 @@ export default function RoughcutWorkspace() {
       validation,
       transcript: validation.reconstructedTranscript,
       transcript_corrections: transcriptCorrections,
+      supporting_script: {
+        provided: Boolean(analyzedScript),
+        character_count: analyzedScript.length,
+        word_count: scriptAnalysis?.scriptWordCount ?? 0,
+        matched_spoken_words: scriptAnalysis?.matchedWordCount ?? 0,
+        wording_corrections: scriptAnalysis?.correctionCount ?? 0,
+        detected_retakes: scriptAnalysis?.retakeCount ?? 0,
+      },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const anchor = document.createElement("a");
@@ -497,6 +576,58 @@ export default function RoughcutWorkspace() {
 
       <section className="workspace">
         <div className="viewer-column">
+          <section className="script-card" aria-labelledby="supporting-script-heading">
+            <div className="script-card-head">
+              <div>
+                <span className="eyebrow">Optional recording context</span>
+                <h2 id="supporting-script-heading">Supporting script</h2>
+                <p>Paste the script used during recording. It improves word selection and helps identify repeated takes of the same line.</p>
+              </div>
+              <span className={`script-state ${scriptChangedSinceAnalysis ? "pending" : analyzedScript ? "applied" : ""}`}>
+                {transcriptionState === "transcribing"
+                  ? "Analyzing"
+                  : scriptChangedSinceAnalysis && hasSourceFile
+                    ? "Reanalysis needed"
+                    : analyzedScript
+                      ? "Applied"
+                      : trimmedSupportingScript
+                        ? "Ready for import"
+                        : "Optional"}
+              </span>
+            </div>
+            <label className="script-input" htmlFor="supporting-script">
+              <span>Recording script</span>
+              <textarea
+                id="supporting-script"
+                value={supportingScript}
+                maxLength={100000}
+                rows={5}
+                placeholder="Paste the intended lines here. Paragraphs and one-line-per-take scripts both work."
+                onChange={(event) => setSupportingScript(event.target.value)}
+              />
+            </label>
+            <div className="script-card-footer">
+              <span>{supportingScriptWordCount.toLocaleString()} script words · exact cut boundaries still come from audio timestamps</span>
+              <div>
+                {trimmedSupportingScript && <button className="button" onClick={() => setSupportingScript("")}>Clear</button>}
+                {hasSourceFile && (
+                  <button
+                    className="button button-primary"
+                    disabled={transcriptionState === "transcribing" || !scriptChangedSinceAnalysis}
+                    onClick={reanalyzeCurrentVideo}
+                  >{trimmedSupportingScript ? "Apply & reanalyze" : "Reanalyze without script"}</button>
+                )}
+              </div>
+            </div>
+            {scriptAnalysis && !scriptChangedSinceAnalysis && (
+              <div className="script-results" aria-label="Supporting script comparison results">
+                <span><strong>{scriptAnalysis.matchedWordCount}/{words.length}</strong> spoken words matched</span>
+                <span><strong>{scriptAnalysis.correctionCount}</strong> wording corrections</span>
+                <span><strong>{scriptAnalysis.retakeCount}</strong> script-guided retakes</span>
+              </div>
+            )}
+          </section>
+
           <div className="viewer-card">
             <div className="viewer-toolbar">
               <div className="file-meta"><span className="record-dot" /><div><strong>{fileName}</strong><span>{importNote}</span></div></div>
@@ -511,7 +642,7 @@ export default function RoughcutWorkspace() {
                 {transcriptionState === "error" && hasSourceFile && (
                   <button className="retry-transcription" onClick={() => {
                     const sourceFile = sourceFileRef.current;
-                    if (sourceFile) void transcribeVideo(sourceFile);
+                    if (sourceFile) void transcribeVideo(sourceFile, trimmedSupportingScript);
                   }}>Retry transcript</button>
                 )}
                 <button className="icon-button" aria-label="Import another video" onClick={() => videoInputRef.current?.click()}>＋</button>
