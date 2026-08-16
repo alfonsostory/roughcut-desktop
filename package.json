@@ -1,6 +1,6 @@
 {
   "name": "roughcut",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Word-safe talking-head rough-cut editor for macOS and Windows.",
   "author": "Alfonso Story",
   "private": true,
