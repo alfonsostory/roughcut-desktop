@@ -302,16 +302,13 @@ export function detectScriptRetakeHints(words, script, { retakeWindow = 25 } = {
     const completeOccurrences = occurrences.filter((occurrence) => occurrence.complete);
     if (!completeOccurrences.length || occurrences.length < 2) continue;
 
-    const maximumScore = Math.max(...completeOccurrences.map((occurrence) => occurrence.score));
-    const best = completeOccurrences
-      .filter((occurrence) => occurrence.score >= maximumScore - 0.015)
-      .sort((left, right) => right.start - left.start)[0];
+    const ordered = [...occurrences].sort((left, right) => left.start - right.start);
+    const best = ordered.at(-1);
     const nearby = occurrences.filter((occurrence) =>
       occurrence.start !== best.start
       && Math.abs(words[occurrence.start].start - words[best.start].start) <= retakeWindow);
     if (!nearby.length) continue;
 
-    const ordered = [...occurrences].sort((left, right) => left.start - right.start);
     const bestIndex = ordered.findIndex((occurrence) => occurrence.start === best.start);
     const nextAfterBest = ordered[bestIndex + 1]?.start ?? words.length;
     const keptEnd = occurrenceSentenceEnd(words, best, segment.length, nextAfterBest);
@@ -334,35 +331,12 @@ export function detectScriptRetakeHints(words, script, { retakeWindow = 25 } = {
         keptWordRange: [best.start, keptEnd],
         confidence: Math.min(
           0.97,
-          (earlier.every((occurrence) => occurrence.complete) ? 0.84 : 0.8)
+          (best.complete && earlier.every((occurrence) => occurrence.complete) ? 0.84 : 0.8)
             + Math.min(...earlier.map((occurrence) => occurrence.score), best.score) * 0.13,
         ),
-        reason: earlier.every((occurrence) => occurrence.complete)
+        reason: best.complete && earlier.every((occurrence) => occurrence.complete)
           ? "The supplied script line appears in two nearby takes; the final complete take is preferred."
-          : "An earlier attempt matches the opening of the supplied script line, then restarts into a later complete take.",
-        uniqueTerms,
-      });
-    }
-
-    for (const later of nearby.filter((occurrence) => occurrence.start > best.start)) {
-      const laterIndex = ordered.findIndex((occurrence) => occurrence.start === later.start);
-      const removedEnd = occurrenceSentenceEnd(
-        words,
-        later,
-        segment.length,
-        ordered[laterIndex + 1]?.start ?? words.length,
-      );
-      const uniqueTerms = [...new Set(
-        meaningfulTerms(words.slice(later.start, removedEnd + 1))
-          .filter((term) => !keptTerms.has(term)),
-      )];
-      proposals.push({
-        kind: "retake",
-        earlierWordRange: [later.start, removedEnd],
-        removedWordRange: [later.start, removedEnd],
-        keptWordRange: [best.start, keptEnd],
-        confidence: Math.min(0.96, 0.8 + Math.min(later.score, best.score) * 0.14),
-        reason: "A later repeat is less complete than the supplied script, so the more complete script-matching take is retained.",
+          : "The supplied script line has multiple nearby takes; the final detected take is retained even when its transcript match is less complete.",
         uniqueTerms,
       });
     }

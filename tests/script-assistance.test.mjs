@@ -83,7 +83,7 @@ test("detects an incomplete script-aligned attempt before the final complete tak
   assert.deepEqual(hint.earlierWordRange, [0, 4]);
   assert.deepEqual(hint.keptWordRange, [5, 9]);
   assert.deepEqual(hint.uniqueTerms, []);
-  assert.match(hint.reason, /earlier attempt/i);
+  assert.match(hint.reason, /final detected take/i);
 });
 
 test("detects complete takes when one contains an inserted spoken filler", () => {
@@ -109,17 +109,17 @@ test("detects a changed earlier wording but protects its unique terms", () => {
   assert.ok(hint.uniqueTerms.includes("content"));
 });
 
-test("keeps an earlier take when the later repeat drops a script word", () => {
+test("keeps the final take while retaining dropped script words as risk evidence", () => {
   const words = timed([
     "Comment", "BIBLE", "and", "I'll", "send", "you", "the", "link.",
     "Comment", "and", "I'll", "send", "you", "the", "link.",
   ]);
   const [hint] = detectScriptRetakeHints(words, "Comment BIBLE and I'll send you the link.");
 
-  assert.deepEqual(hint.removedWordRange, [8, 14]);
-  assert.deepEqual(hint.keptWordRange, [0, 7]);
-  assert.deepEqual(hint.uniqueTerms, []);
-  assert.match(hint.reason, /later repeat is less complete/i);
+  assert.deepEqual(hint.removedWordRange, [0, 7]);
+  assert.deepEqual(hint.keptWordRange, [8, 14]);
+  assert.ok(hint.uniqueTerms.includes("bible"));
+  assert.match(hint.reason, /final (complete|detected) take/i);
 });
 
 test("finds repeated takes when the transcript mishears the line ending", () => {
@@ -130,9 +130,10 @@ test("finds repeated takes when the transcript mishears the line ending", () => 
   ]);
   const hints = detectScriptRetakeHints(words, "Show up for the people everyone else ignores.");
 
-  assert.equal(hints.length, 2);
-  assert.deepEqual(hints.map((hint) => hint.removedWordRange), [[0, 9], [18, 24]]);
-  assert.ok(hints.every((hint) => hint.keptWordRange[0] === 10));
+  assert.equal(hints.length, 1);
+  assert.deepEqual(hints[0].removedWordRange, [0, 17]);
+  assert.deepEqual(hints[0].keptWordRange, [18, 24]);
+  assert.match(hints[0].reason, /final detected take/i);
 });
 
 test("a distinctive two-word script opening can identify an incomplete restart", () => {
@@ -147,7 +148,7 @@ test("a distinctive two-word script opening can identify an incomplete restart",
 
   assert.deepEqual(hint.removedWordRange, [0, 14]);
   assert.deepEqual(hint.keptWordRange, [15, 23]);
-  assert.match(hint.reason, /earlier attempt/i);
+  assert.match(hint.reason, /final detected take/i);
 });
 
 test("does not create a retake from a single complete script occurrence", () => {
