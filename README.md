@@ -53,10 +53,12 @@ The Electron desktop app opens the same review workspace and starts its private 
 ```bash
 pnpm desktop:dev
 pnpm desktop:dist --mac --arm64
-pnpm desktop:dist --win --x64
+pnpm desktop:dist:win
 ```
 
 Installer artifacts are written to `release/`. The desktop build workflow produces separate Apple Silicon and Windows x64 downloads so every installer contains the correct native FFmpeg and ONNX runtime. Unsigned local macOS builds may require right-clicking the app and choosing **Open**; production distribution should add Apple notarization and Windows code signing.
+
+The Windows build is an NSIS `.exe` installer, not a portable ZIP. CI installs that `.exe` silently on a Windows runner, starts the installed application, and verifies that the packaged app and its local media service initialize successfully. GitHub may wrap CI test artifacts in a ZIP for transport, but a tagged draft release exposes the `.exe` itself as a direct installer download.
 
 ## Shipping updates to reviewer computers
 

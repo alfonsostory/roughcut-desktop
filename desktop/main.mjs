@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import path from "node:path";
 import electronUpdater from "electron-updater";
 import { createTranscriptionServer } from "../transcription/server.mjs";
+import { writeDesktopSmokeResult } from "./smoke-test.mjs";
 import { createManualUpdateChecker } from "./updates.mjs";
 
 const LIVE_APP_URL = "https://roughcut-phase-one-demo.alfonsostory.chatgpt.site/";
@@ -9,6 +10,7 @@ const MEDIA_PORT = Number(process.env.ROUGHCUT_TRANSCRIBER_PORT ?? 4317);
 // Repository that publishes the desktop installers and their update manifests.
 const UPDATE_REPOSITORY = process.env.ROUGHCUT_UPDATE_REPOSITORY ?? "alfonsostory/roughcut-desktop";
 const UPDATE_CHECK_DELAY = 4000;
+const SMOKE_TEST_PATH = process.env.ROUGHCUT_DESKTOP_SMOKE_TEST_PATH;
 let mediaServer;
 let mainWindow;
 
@@ -122,6 +124,17 @@ else {
   });
   app.whenReady().then(async () => {
     await startMediaService();
+    if (SMOKE_TEST_PATH) {
+      await writeDesktopSmokeResult(SMOKE_TEST_PATH, {
+        version: app.getVersion(),
+        packaged: app.isPackaged,
+        platform: process.platform,
+        arch: process.arch,
+        mediaServiceReady: true,
+      });
+      app.quit();
+      return;
+    }
     createWindow();
     startUpdateChecks();
     app.on("activate", () => {

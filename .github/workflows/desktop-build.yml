@@ -19,8 +19,18 @@ jobs:
         include:
           - os: macos-14
             command: pnpm desktop:dist --mac --arm64
+            artifact_name: roughcut-macos-arm64
+            artifact_paths: |
+              release/*.dmg
+              release/*.zip
+              release/latest-mac.yml
           - os: windows-latest
-            command: pnpm desktop:dist --win --x64
+            command: pnpm desktop:dist:win
+            artifact_name: roughcut-windows-x64-installer
+            artifact_paths: |
+              release/*.exe
+              release/*.blockmap
+              release/latest.yml
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +48,10 @@ jobs:
       - run: ${{ matrix.command }} ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && '--publish always' || '--publish never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: runner.os == 'Windows'
+        run: pnpm desktop:test:win-installer
       - uses: actions/upload-artifact@v4
         with:
-          name: roughcut-${{ runner.os }}-${{ matrix.os }}
-          path: release/*
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_paths }}
           if-no-files-found: error

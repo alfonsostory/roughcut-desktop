@@ -23,7 +23,9 @@
     "db:migrate:local": "wrangler d1 execute site-creator-d1 --local --config=.openai/wrangler.local.jsonc --persist-to=.wrangler/state --file=drizzle/0000_curious_jasper_sitwell.sql",
     "desktop:dev": "electron .",
     "desktop:pack": "electron-builder --dir",
-    "desktop:dist": "electron-builder"
+    "desktop:dist": "electron-builder",
+    "desktop:dist:win": "electron-builder --win nsis --x64",
+    "desktop:test:win-installer": "pwsh -NoProfile -File scripts/test-windows-installer.ps1"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
