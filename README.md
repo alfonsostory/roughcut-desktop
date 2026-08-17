@@ -56,7 +56,7 @@ pnpm desktop:dist --mac --arm64
 pnpm desktop:dist:win
 ```
 
-Installer artifacts are written to `release/`. The desktop build workflow produces separate Apple Silicon and Windows x64 downloads so every installer contains the correct native FFmpeg and ONNX runtime. Unsigned local macOS builds may require right-clicking the app and choosing **Open**; production distribution should add Apple notarization and Windows code signing.
+Installer artifacts are written to `release/`. The desktop build workflow produces separate Apple Silicon and Windows x64 downloads so every installer contains the correct native FFmpeg and ONNX runtime. Local macOS builds receive a complete ad-hoc signature so the bundle passes integrity verification, but they still require right-clicking the app and choosing **Open** on the first launch. Warning-free public distribution requires Apple Developer ID signing and notarization; Windows distribution should likewise add code signing.
 
 The Windows build is an NSIS `.exe` installer, not a portable ZIP. CI installs that `.exe` silently on a Windows runner, starts the installed application, and verifies that the packaged app and its local media service initialize successfully. GitHub may wrap CI test artifacts in a ZIP for transport, but a tagged draft release exposes the `.exe` itself as a direct installer download.
 

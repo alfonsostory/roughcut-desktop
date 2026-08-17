@@ -16,8 +16,15 @@ test("Windows desktop packaging produces an NSIS installer rather than a ZIP", a
   assert.equal(packageJson.build.nsis.oneClick, false);
   assert.equal(packageJson.build.nsis.allowToChangeInstallationDirectory, true);
   assert.match(workflow, /pnpm desktop:test:win-installer/);
+  assert.match(workflow, /pnpm desktop:test:mac-installer/);
   assert.match(workflow, /release\/\*\.exe/);
   assert.doesNotMatch(workflow, /windows[^\n]*\.zip/i);
+});
+
+test("macOS packaging applies a complete ad-hoc signature when Developer ID is unavailable", async () => {
+  const packageJson = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+  assert.equal(packageJson.build.mac.identity, "-");
+  assert.deepEqual(packageJson.build.mac.target, ["dmg", "zip"]);
 });
 
 test("desktop smoke results are written for the Windows installer check", async () => {

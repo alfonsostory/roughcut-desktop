@@ -25,6 +25,7 @@
     "desktop:pack": "electron-builder --dir",
     "desktop:dist": "electron-builder",
     "desktop:dist:win": "electron-builder --win nsis --x64",
+    "desktop:test:mac-installer": "bash scripts/test-macos-installer.sh",
     "desktop:test:win-installer": "pwsh -NoProfile -File scripts/test-windows-installer.ps1"
   },
   "dependencies": {
@@ -96,7 +97,7 @@
         "dmg",
         "zip"
       ],
-      "identity": null
+      "identity": "-"
     },
     "win": {
       "target": [

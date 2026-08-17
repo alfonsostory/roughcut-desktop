@@ -48,6 +48,8 @@ jobs:
       - run: ${{ matrix.command }} ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && '--publish always' || '--publish never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: runner.os == 'macOS'
+        run: pnpm desktop:test:mac-installer
       - if: runner.os == 'Windows'
         run: pnpm desktop:test:win-installer
       - uses: actions/upload-artifact@v4
