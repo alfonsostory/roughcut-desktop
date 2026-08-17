@@ -56,7 +56,32 @@ pnpm desktop:dist --mac --arm64
 pnpm desktop:dist --win --x64
 ```
 
-Installer artifacts are written to `release/`. The desktop build workflow produces separate Apple Silicon, Intel Mac, and Windows x64 downloads so every installer contains the correct native FFmpeg and ONNX runtime. Unsigned local macOS builds may require right-clicking the app and choosing **Open**; production distribution should add Apple notarization and Windows code signing.
+Installer artifacts are written to `release/`. The desktop build workflow produces separate Apple Silicon and Windows x64 downloads so every installer contains the correct native FFmpeg and ONNX runtime. Unsigned local macOS builds may require right-clicking the app and choosing **Open**; production distribution should add Apple notarization and Windows code signing.
+
+## Shipping updates to reviewer computers
+
+Roughcut updates travel on two separate tracks, and most changes never require a reinstall.
+
+| Changed area | How reviewers receive it |
+| --- | --- |
+| `app/**` — review UI, cut engine, retake and script assistance | Redeploy the hosted workspace. The desktop shell loads that URL at launch, so reviewers only reopen the app. |
+| `transcription/**`, `desktop/**`, dependencies | Publish a new installer. |
+
+### Publishing an installer
+
+1. Raise `version` in `package.json`.
+2. Push a matching tag: `git tag v0.1.3 && git push origin v0.1.3`.
+3. `.github/workflows/desktop-build.yml` builds Apple Silicon and Windows x64, then attaches the installers and `latest.yml` to a **draft** GitHub release. Running the workflow manually only builds; it never publishes.
+4. Review the draft on GitHub and publish it. Nothing reaches reviewers until this step.
+
+Set `build.publish.owner` in `package.json` and `UPDATE_REPOSITORY` in `desktop/main.mjs` to the repository that hosts the releases.
+
+### How each platform updates
+
+- **Windows** checks the published release on launch, downloads it in the background, and offers a restart when it is ready.
+- **macOS** builds are unsigned, so Squirrel.Mac refuses to replace the app automatically. Roughcut instead reports that a newer version exists and opens the release page so the reviewer can drag the new app into Applications. Signing with an Apple Developer certificate is what would enable silent macOS updates.
+
+Both checks fail quietly: an offline machine or an unreachable release feed never blocks startup.
 
 ## Manual transcript fallback
 

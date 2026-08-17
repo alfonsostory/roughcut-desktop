@@ -29,6 +29,7 @@
     "@huggingface/transformers": "^4.2.0",
     "archiver": "^7.0.1",
     "drizzle-orm": "0.45.2",
+    "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -74,6 +75,14 @@
       "package.json"
     ],
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "alfonsostory",
+        "repo": "roughcut-desktop",
+        "releaseType": "draft"
+      }
+    ],
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*",
       "node_modules/onnxruntime-node/**/*",

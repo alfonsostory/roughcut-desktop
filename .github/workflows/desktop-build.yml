@@ -4,7 +4,12 @@ on:
   workflow_dispatch:
   push:
     tags:
+      - "v*"
       - "desktop-v*"
+
+# electron-builder attaches installers and update manifests to a draft release.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -14,8 +19,6 @@ jobs:
         include:
           - os: macos-14
             command: pnpm desktop:dist --mac --arm64
-          - os: macos-13
-            command: pnpm desktop:dist --mac --x64
           - os: windows-latest
             command: pnpm desktop:dist --win --x64
     runs-on: ${{ matrix.os }}
@@ -29,9 +32,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: ${{ matrix.command }}
+      # Only a pushed tag publishes to the draft GitHub release that carries
+      # latest.yml for electron-updater. workflow_dispatch always builds only,
+      # including when it is dispatched against a tag ref.
+      - run: ${{ matrix.command }} ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && '--publish always' || '--publish never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: roughcut-${{ runner.os }}
+          name: roughcut-${{ runner.os }}-${{ matrix.os }}
           path: release/*
           if-no-files-found: error
