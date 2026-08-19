@@ -9,8 +9,20 @@ import { pathToFileURL } from "node:url";
 import { pipeline } from "node:stream/promises";
 import archiver from "archiver";
 import bundledFfmpegPath from "ffmpeg-static";
+import {
+  buildFormatAnalysisRequest,
+  DEFAULT_FORMAT_MODEL,
+  requestFormatAnalysis,
+} from "../app/lib/format/analyze.mjs";
 import { analyzeSilence, readPcmWav } from "./audio-analysis.mjs";
 import { normalizeKeepRanges, segmentFileName, writePackageGuides } from "./export-package.mjs";
+import {
+  DEFAULT_FRAME_COUNT,
+  FRAME_MAX_WIDTH,
+  frameTimestamps,
+  isImageUpload,
+  parseFfmpegDuration,
+} from "./format-frames.mjs";
 import { transcribeWav } from "./transcribe-cross-platform.mjs";
 
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
@@ -166,6 +178,55 @@ export async function renderVideo(inputPath, audioPath, keepRanges, outputPath, 
   ], { env: process.env });
 }
 
+export async function measureMediaDuration(inputPath) {
+  try {
+    const { stderr } = await runCapture(ffmpegExecutable(), ["-hide_banner", "-i", inputPath]);
+    return parseFfmpegDuration(stderr);
+  } catch (error) {
+    return parseFfmpegDuration(error instanceof Error ? error.message : "");
+  }
+}
+
+const frameScaleFilter = `scale='min(${FRAME_MAX_WIDTH},iw)':-2`;
+
+export async function extractInspirationFrames(
+  inputPath,
+  workingDirectory,
+  count = DEFAULT_FRAME_COUNT,
+  { image = isImageUpload(inputPath) } = {},
+) {
+  const framePath = (index) => path.join(
+    workingDirectory,
+    `inspiration-frame-${String(index + 1).padStart(2, "0")}.jpg`,
+  );
+  const readFrame = async (timestamp, index) => ({
+    timestamp,
+    base64: (await readFile(framePath(index))).toString("base64"),
+    mimeType: "image/jpeg",
+  });
+
+  if (image) {
+    await run(ffmpegExecutable(), [
+      "-hide_banner", "-loglevel", "error", "-y", "-i", inputPath,
+      "-frames:v", "1", "-vf", frameScaleFilter, "-q:v", "4", framePath(0),
+    ]);
+    return [await readFrame(0, 0)];
+  }
+
+  const duration = await measureMediaDuration(inputPath);
+  const timestamps = frameTimestamps(duration ?? 0, count);
+  const frames = [];
+  for (const [index, timestamp] of timestamps.entries()) {
+    await run(ffmpegExecutable(), [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-ss", timestamp.toFixed(3), "-i", inputPath,
+      "-frames:v", "1", "-vf", frameScaleFilter, "-q:v", "4", framePath(index),
+    ]);
+    frames.push(await readFrame(timestamp, index));
+  }
+  return frames;
+}
+
 export async function extractAudio(inputPath, outputPath) {
   await run(ffmpegExecutable(), [
     "-hide_banner", "-loglevel", "error", "-y", "-i", inputPath,
@@ -186,7 +247,7 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
       response.writeHead(204, {
         "access-control-allow-origin": origin,
         "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
-        "access-control-allow-headers": "content-type, x-file-name",
+        "access-control-allow-headers": "content-type, x-file-name, x-roughcut-brief",
         "access-control-allow-private-network": "true",
         "access-control-max-age": "86400",
       });
@@ -206,6 +267,46 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
       }
       json(response, 200, { removed: Boolean(media) }, origin);
       return;
+    }
+    if (request.method === "POST" && request.url === "/inspiration") {
+      let workingDirectory;
+      try {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) {
+          json(response, 503, {
+            error: "Set OPENAI_API_KEY for the local companion service to analyze inspiration videos.",
+          }, origin);
+          return;
+        }
+        const brief = decodeURIComponent(String(request.headers["x-roughcut-brief"] ?? "")).trim();
+        if (!brief) {
+          json(response, 400, { error: "Paste the client brief before analyzing the inspiration." }, origin);
+          return;
+        }
+        workingDirectory = await mkdtemp(path.join(tmpdir(), "roughcut-inspiration-"));
+        const { fileName, inputPath } = await receiveUpload(request, workingDirectory);
+        const frames = await extractInspirationFrames(inputPath, workingDirectory, DEFAULT_FRAME_COUNT, {
+          image: isImageUpload(fileName, String(request.headers["content-type"] ?? "")),
+        });
+        const model = process.env.ROUGHCUT_FORMAT_MODEL ?? DEFAULT_FORMAT_MODEL;
+        const formatSpec = await requestFormatAnalysis(
+          buildFormatAnalysisRequest({ brief, frames, model }),
+          { apiKey },
+        );
+        json(response, 200, {
+          format_spec: formatSpec,
+          frames_analyzed: frames.length,
+          model,
+          source: fileName,
+        }, origin);
+        return;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Unknown inspiration analysis error";
+        json(response, 500, { error: detail }, origin);
+        return;
+      } finally {
+        if (workingDirectory) await rm(workingDirectory, { recursive: true, force: true });
+      }
     }
     if (request.method === "POST" && (request.url === "/render" || request.url === "/segments")) {
       let workingDirectory;
@@ -242,7 +343,7 @@ export function createTranscriptionServer({ transcribe = transcribeFile } = {}) 
         }
 
         const packageDirectory = path.join(workingDirectory, `${baseName}-segments`);
-        await writePackageGuides(packageDirectory, media.fileName, ranges);
+        await writePackageGuides(packageDirectory, media.fileName, ranges, payload.format ?? null);
         for (let index = 0; index < ranges.length; index += 1) {
           const range = ranges[index];
           const outputPath = path.join(packageDirectory, segmentFileName(index, range));

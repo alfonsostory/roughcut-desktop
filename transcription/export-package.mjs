@@ -1,5 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { buildCaptionsSrt, buildFormatGuide } from "../app/lib/format/guide.mjs";
+import { normalizeFormatSpec } from "../app/lib/format/spec.mjs";
 
 const seconds = (value) => Number(value.toFixed(3));
 
@@ -52,10 +54,49 @@ export function buildSegmentManifest(sourceName, ranges) {
   };
 }
 
-export async function writePackageGuides(directory, sourceName, ranges) {
+export function buildFormatPackage(format) {
+  if (!format || typeof format !== "object") return null;
+  const spec = normalizeFormatSpec(format.spec);
+  const plan = format.plan && typeof format.plan === "object" ? format.plan : null;
+  if (!plan || !Array.isArray(plan.titles) || !Array.isArray(plan.captions)) {
+    throw new Error("A format export needs the overlay plan computed from the reviewed edit.");
+  }
+  return {
+    spec,
+    plan,
+    files: {
+      spec_file: "format-spec.json",
+      overlay_plan_file: "overlay-plan.json",
+      captions_file: "captions.srt",
+      guide_file: "CAPCUT_FORMAT_GUIDE.txt",
+    },
+  };
+}
+
+export async function writePackageGuides(directory, sourceName, ranges, format = null) {
   await mkdir(directory, { recursive: true });
+  const formatPackage = buildFormatPackage(format);
   const manifest = buildSegmentManifest(sourceName, ranges);
+  if (formatPackage) manifest.format = formatPackage.files;
   await writeFile(path.join(directory, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  if (formatPackage) {
+    await writeFile(
+      path.join(directory, formatPackage.files.spec_file),
+      `${JSON.stringify(formatPackage.spec, null, 2)}\n`,
+    );
+    await writeFile(
+      path.join(directory, formatPackage.files.overlay_plan_file),
+      `${JSON.stringify(formatPackage.plan, null, 2)}\n`,
+    );
+    await writeFile(
+      path.join(directory, formatPackage.files.captions_file),
+      buildCaptionsSrt(formatPackage.plan.captions),
+    );
+    await writeFile(
+      path.join(directory, formatPackage.files.guide_file),
+      buildFormatGuide(formatPackage.spec, formatPackage.plan, sourceName),
+    );
+  }
   await writeFile(
     path.join(directory, "CAPCUT_IMPORT.txt"),
     [

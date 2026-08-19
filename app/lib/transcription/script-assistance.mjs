@@ -7,14 +7,14 @@ const NUMBER_WORDS = new Map([
   ["five", "5"], ["six", "6"], ["seven", "7"], ["eight", "8"], ["nine", "9"], ["ten", "10"],
 ]);
 
-const normalizeToken = (value) => {
+export const normalizeToken = (value) => {
   const normalized = String(value ?? "")
   .toLocaleLowerCase()
   .replace(/[^\p{L}\p{N}']/gu, "");
   return NUMBER_WORDS.get(normalized) ?? normalized;
 };
 
-const lexicalTokens = (text) => String(text ?? "")
+export const lexicalTokens = (text) => String(text ?? "")
   .match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) ?? [];
 
 const levenshteinDistance = (left, right) => {
@@ -37,7 +37,7 @@ const levenshteinDistance = (left, right) => {
   return previous.at(-1);
 };
 
-const tokenSimilarity = (left, right) => {
+export const tokenSimilarity = (left, right) => {
   const normalizedLeft = normalizeToken(left);
   const normalizedRight = normalizeToken(right);
   const length = Math.max(normalizedLeft.length, normalizedRight.length);

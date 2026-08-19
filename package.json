@@ -71,6 +71,7 @@
     "files": [
       "desktop/**/*",
       "transcription/**/*",
+      "app/lib/**/*",
       "package.json"
     ],
     "asar": true,
